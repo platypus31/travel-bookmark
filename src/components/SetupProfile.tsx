@@ -21,17 +21,17 @@ export default function SetupProfile({ userId, onComplete }: Props) {
     let groupId: string;
 
     if (groupChoice === "create") {
-      const { data, error } = await supabase
+      // Generate UUID client-side to avoid SELECT-after-INSERT RLS issue
+      // (user has no profile yet, so get_my_group_id() returns NULL)
+      groupId = crypto.randomUUID();
+      const { error } = await supabase
         .from("groups")
-        .insert({ name: groupName || `${name}的收藏` })
-        .select("id")
-        .single();
-      if (error || !data) {
-        alert("建立群組失敗：" + error?.message);
+        .insert({ id: groupId, name: groupName || `${name}的收藏` });
+      if (error) {
+        alert("建立群組失敗：" + error.message);
         setLoading(false);
         return;
       }
-      groupId = data.id;
     } else {
       const { data, error } = await supabase
         .from("groups")

@@ -24,10 +24,11 @@ body {
 input,
 select,
 textarea {
-  color: inherit;
+  background-color: #18181b;
+  color: #ffffff;
 }
 
 input::placeholder,
 textarea::placeholder {
-  color: var(--color-muted);
+  color: #a3a3a3;
 }
