@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { CITIES, PlaceType, PLACE_TYPE_LABELS } from "@/lib/types";
-import { detectPlatform } from "@/lib/utils";
+import { detectPlatform, platformEmoji } from "@/lib/utils";
 
 interface Props {
   groupId: string;
@@ -15,11 +15,54 @@ interface Props {
 export default function AddBookmark({ groupId, userId, onAdded, onClose }: Props) {
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
   const [city, setCity] = useState("");
   const [district, setDistrict] = useState("");
   const [placeType, setPlaceType] = useState<PlaceType | "">("");
   const [tags, setTags] = useState("");
   const [loading, setLoading] = useState(false);
+  const [fetching, setFetching] = useState(false);
+
+  const fetchPreview = useCallback(async (inputUrl: string) => {
+    if (!inputUrl.trim()) return;
+    try {
+      new URL(inputUrl);
+    } catch {
+      return;
+    }
+
+    setFetching(true);
+    try {
+      const res = await fetch("/api/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: inputUrl.trim() }),
+      });
+      const data = await res.json();
+      if (data.title && !title) setTitle(data.title);
+      if (data.description && !description) setDescription(data.description);
+      if (data.image) setImageUrl(data.image);
+    } catch {
+      // Silently fail — user can still fill manually
+    }
+    setFetching(false);
+  }, [title, description]);
+
+  const handleUrlChange = (value: string) => {
+    setUrl(value);
+  };
+
+  const handleUrlBlur = () => {
+    if (url.trim()) fetchPreview(url);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const pasted = e.clipboardData.getData("text");
+    if (pasted) {
+      setTimeout(() => fetchPreview(pasted), 100);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,6 +77,8 @@ export default function AddBookmark({ groupId, userId, onAdded, onClose }: Props
       url: url.trim(),
       platform,
       title: title.trim() || null,
+      description: description.trim() || null,
+      image_url: imageUrl.trim() || null,
       city: city || null,
       district: district || null,
       place_type: placeType || null,
@@ -53,6 +98,7 @@ export default function AddBookmark({ groupId, userId, onAdded, onClose }: Props
   };
 
   const districts = city ? CITIES[city] || [] : [];
+  const platform = url ? detectPlatform(url) : null;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center">
@@ -63,23 +109,52 @@ export default function AddBookmark({ groupId, userId, onAdded, onClose }: Props
         </div>
 
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
+          {/* URL Input */}
           <div>
             <label className="block text-sm font-medium mb-1">貼上連結 *</label>
             <input
               type="url"
               placeholder="https://www.instagram.com/p/..."
               value={url}
-              onChange={(e) => setUrl(e.target.value)}
+              onChange={(e) => handleUrlChange(e.target.value)}
+              onBlur={handleUrlBlur}
+              onPaste={handlePaste}
               required
               className="w-full px-3 py-2.5 rounded-xl border border-border bg-card text-base outline-none focus:ring-2 focus:ring-primary"
             />
-            {url && (
-              <span className="text-xs text-muted mt-1 block">
-                平台：{detectPlatform(url)}
+            {platform && (
+              <span className="text-xs text-muted mt-1 flex items-center gap-1">
+                {platformEmoji(platform)} {platform}
+                {fetching && <span className="ml-2 animate-pulse">抓取中...</span>}
               </span>
             )}
           </div>
 
+          {/* Preview Card */}
+          {(imageUrl || (title && fetching === false && url)) && (
+            <div className="rounded-xl border border-border overflow-hidden bg-card">
+              {imageUrl && (
+                <img
+                  src={imageUrl}
+                  alt="預覽"
+                  className="w-full h-40 object-cover"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              )}
+              {title && (
+                <div className="p-3">
+                  <p className="text-sm font-medium line-clamp-2">{title}</p>
+                  {description && (
+                    <p className="text-xs text-muted mt-1 line-clamp-2">{description}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Title */}
           <div>
             <label className="block text-sm font-medium mb-1">標題 / 店名</label>
             <input
@@ -91,6 +166,7 @@ export default function AddBookmark({ groupId, userId, onAdded, onClose }: Props
             />
           </div>
 
+          {/* City & District */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium mb-1">縣市</label>
@@ -124,6 +200,7 @@ export default function AddBookmark({ groupId, userId, onAdded, onClose }: Props
             </div>
           </div>
 
+          {/* Place Type */}
           <div>
             <label className="block text-sm font-medium mb-1">類型</label>
             <div className="flex flex-wrap gap-2">
@@ -146,6 +223,7 @@ export default function AddBookmark({ groupId, userId, onAdded, onClose }: Props
             </div>
           </div>
 
+          {/* Tags */}
           <div>
             <label className="block text-sm font-medium mb-1">標籤</label>
             <input

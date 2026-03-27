@@ -92,6 +92,11 @@ export default function Home() {
     );
   };
 
+  const handleDelete = async (id: string) => {
+    await supabase.from("bookmarks").delete().eq("id", id);
+    setBookmarks((prev) => prev.filter((b) => b.id !== id));
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setUser(null);
@@ -190,6 +195,7 @@ export default function Home() {
               key={bookmark.id}
               bookmark={bookmark}
               onToggleVisited={handleToggleVisited}
+              onDelete={handleDelete}
             />
           ))
         )}
