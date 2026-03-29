@@ -33,33 +33,96 @@ async function replyMessage(replyToken: string, messages: { type: string; text: 
   });
 }
 
+const CITIES = [
+  "台北", "新北", "基隆", "桃園", "新竹", "苗栗",
+  "台中", "彰化", "南投", "雲林",
+  "嘉義", "台南", "高雄", "屏東",
+  "宜蘭", "花蓮", "台東",
+  "澎湖", "金門", "馬祖",
+];
+
 function extractUrl(text: string): string | null {
   const urlRegex = /(https?:\/\/[^\s]+)/;
   const match = text.match(urlRegex);
   return match ? match[1] : null;
 }
 
+function extractCity(text: string): string | null {
+  for (const city of CITIES) {
+    if (text.includes(city)) return city;
+  }
+  return null;
+}
+
 function guessPlaceType(text: string): string | null {
   const lower = text.toLowerCase();
-  if (/餐廳|美食|小吃|料理|麵|飯|鍋|燒烤|bbq|food|restaurant/.test(lower)) return "restaurant";
-  if (/咖啡|cafe|coffee/.test(lower)) return "cafe";
-  if (/酒吧|bar|pub|調酒/.test(lower)) return "bar";
-  if (/住宿|飯店|民宿|hotel|旅館/.test(lower)) return "hotel";
-  if (/景點|秘境|步道|瀑布|海邊|山/.test(lower)) return "attraction";
+  if (/餐廳|美食|小吃|料理|麵|飯|鍋|燒烤|bbq|food|restaurant|拉麵|壽司|丼|串燒|熱炒|牛排|火鍋|滷肉/.test(lower)) return "restaurant";
+  if (/咖啡|cafe|coffee|甜點|蛋糕|下午茶|dessert/.test(lower)) return "cafe";
+  if (/酒吧|bar|pub|調酒|居酒屋|啤酒/.test(lower)) return "bar";
+  if (/住宿|飯店|民宿|hotel|旅館|villa|露營|glamping/.test(lower)) return "hotel";
+  if (/景點|秘境|步道|瀑布|海邊|山|溫泉|古蹟|老街|夜景|觀景/.test(lower)) return "attraction";
   return null;
+}
+
+// Fetch OG meta from URL for auto-classification
+async function fetchOgMeta(url: string): Promise<{ title: string | null; description: string | null }> {
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; TravelBookmarkBot/1.0)" },
+      redirect: "follow",
+      signal: AbortSignal.timeout(5000),
+    });
+    const html = await res.text();
+
+    const ogTitle = html.match(/<meta[^>]*property="og:title"[^>]*content="([^"]*)"/)
+      || html.match(/<meta[^>]*content="([^"]*)"[^>]*property="og:title"/);
+    const ogDesc = html.match(/<meta[^>]*property="og:description"[^>]*content="([^"]*)"/)
+      || html.match(/<meta[^>]*content="([^"]*)"[^>]*property="og:description"/);
+    const titleTag = html.match(/<title[^>]*>([^<]*)<\/title>/);
+
+    return {
+      title: ogTitle?.[1] || titleTag?.[1] || null,
+      description: ogDesc?.[1] || null,
+    };
+  } catch {
+    return { title: null, description: null };
+  }
 }
 
 async function handleUrl(url: string, extraText: string, replyToken: string) {
   const platform = detectPlatform(url);
-  const placeType = guessPlaceType(extraText);
   const cleanText = extraText.replace(/(https?:\/\/[^\s]+)/g, "").trim();
 
-  const { data, error } = await supabase.rpc("insert_bookmark_from_bot", {
+  // 1. Try to extract city from user's message text
+  let city = extractCity(cleanText);
+  let placeType = guessPlaceType(cleanText);
+  let title = cleanText;
+
+  // 2. Fetch OG meta for more info
+  const og = await fetchOgMeta(url);
+  const ogCombined = [og.title, og.description].filter(Boolean).join(" ");
+
+  // Use OG title if user didn't provide one
+  if (!title && og.title) {
+    title = og.title;
+  }
+
+  // Try to extract city/placeType from OG meta if not found in user text
+  if (!city) {
+    city = extractCity(ogCombined);
+  }
+  if (!placeType) {
+    placeType = guessPlaceType(ogCombined);
+  }
+
+  const { error } = await supabase.rpc("insert_bookmark_from_bot", {
     p_group_id: DEFAULT_GROUP_ID,
     p_created_by: DEFAULT_USER_ID,
     p_url: url,
     p_platform: platform,
-    p_title: cleanText || null,
+    p_title: title || og.title || null,
+    p_description: og.description || null,
+    p_city: city,
     p_place_type: placeType,
   });
 
@@ -72,11 +135,14 @@ async function handleUrl(url: string, extraText: string, replyToken: string) {
 
   const emoji = platformEmoji(platform);
   const typeEmoji = placeTypeEmoji(placeType);
+  const parts = [`${emoji} 已收藏！`];
+  if (title) parts.push(`📌 ${title}`);
+  if (city) parts.push(`📍 ${city}`);
+  if (placeType) parts.push(`${typeEmoji} ${placeType}`);
+  if (!city) parts.push(`\n💡 我沒偵測到地區，你可以補充：「嘉義」就好`);
+
   await replyMessage(replyToken, [
-    {
-      type: "text",
-      text: `${emoji} 已收藏！${cleanText ? `\n📌 ${cleanText}` : ""}${placeType ? `\n${typeEmoji} ${placeType}` : ""}\n\n💡 之後可以在網頁上補地區和標籤`,
-    },
+    { type: "text", text: parts.join("\n") },
   ]);
 }
 
