@@ -80,8 +80,28 @@ async function fetchOgMeta(url: string): Promise<{ title: string | null; descrip
       || html.match(/<meta[^>]*content="([^"]*)"[^>]*property="og:description"/);
     const titleTag = html.match(/<title[^>]*>([^<]*)<\/title>/);
 
+    // Clean up IG-style titles: "帳號 在 Instagram: \"超長內容...\"" → extract first meaningful line
+    let rawTitle = ogTitle?.[1] || titleTag?.[1] || null;
+    if (rawTitle) {
+      // Remove HTML entities
+      rawTitle = rawTitle.replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)));
+      rawTitle = rawTitle.replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+
+      // IG pattern: "帳號 在 Instagram: \"content\"" or "帳號 on Instagram: \"content\""
+      const igMatch = rawTitle.match(/在 Instagram[：:]\s*["""]?(.+)/) || rawTitle.match(/on Instagram[：:]\s*["""]?(.+)/);
+      if (igMatch) {
+        rawTitle = igMatch[1].replace(/["""]\s*$/, '');
+      }
+
+      // Take first line only, max 60 chars
+      rawTitle = rawTitle.split(/[\n\r]/)[0].trim();
+      if (rawTitle.length > 60) {
+        rawTitle = rawTitle.substring(0, 57) + '...';
+      }
+    }
+
     return {
-      title: ogTitle?.[1] || titleTag?.[1] || null,
+      title: rawTitle,
       description: ogDesc?.[1] || null,
     };
   } catch {

@@ -47,7 +47,7 @@ export default function ClientApp({ initialBookmarks, groupName }: Props) {
   return (
     <div className="max-w-lg mx-auto pb-24">
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-lg border-b border-border px-4 py-3">
+      <header className="sticky top-0 z-40 bg-white/80 bg-stone-50/90 backdrop-blur-lg border-b border-border px-4 py-3">
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-bold">📍 旅遊收藏</h1>
           <span className="text-sm px-3 py-1 rounded-full bg-card border border-border">
@@ -150,7 +150,7 @@ export default function ClientApp({ initialBookmarks, groupName }: Props) {
                 {bookmark.tags && bookmark.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1">
                     {bookmark.tags.map((tag) => (
-                      <span key={tag} className="px-2 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 rounded-full text-xs">
+                      <span key={tag} className="px-2 py-0.5 bg-orange-100 bg-orange-50 text-orange-700 text-orange-600 rounded-full text-xs">
                         {tag}
                       </span>
                     ))}
@@ -158,7 +158,7 @@ export default function ClientApp({ initialBookmarks, groupName }: Props) {
                 )}
 
                 {bookmark.place_type && (
-                  <span className="inline-block px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800 rounded-full text-xs text-muted">
+                  <span className="inline-block px-2 py-0.5 bg-zinc-100 bg-stone-100 rounded-full text-xs text-muted">
                     {PLACE_TYPE_LABELS[bookmark.place_type as PlaceType] || bookmark.place_type}
                   </span>
                 )}
