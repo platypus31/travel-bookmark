@@ -2,18 +2,16 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
-import { Bookmark, Group, Profile } from "@/lib/types";
-import AuthForm from "@/components/AuthForm";
-import SetupProfile from "@/components/SetupProfile";
+import { Bookmark, Group } from "@/lib/types";
 import BookmarkCard from "@/components/BookmarkCard";
 import FilterBar from "@/components/FilterBar";
 import AddBookmark from "@/components/AddBookmark";
 import GroupInfo from "@/components/GroupInfo";
-import type { User } from "@supabase/supabase-js";
+
+const DEFAULT_GROUP_ID = "YOUR_LINE_DEFAULT_GROUP_ID";
+const DEFAULT_USER_ID = "YOUR_LINE_DEFAULT_USER_ID";
 
 export default function Home() {
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
   const [group, setGroup] = useState<Group | null>(null);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,64 +24,27 @@ export default function Home() {
     search: "",
   });
 
-  const loadProfile = useCallback(async (userId: string) => {
-    const { data } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .single();
-    setProfile(data);
-    return data;
-  }, []);
-
-  const loadGroup = useCallback(async (groupId: string) => {
+  const loadGroup = useCallback(async () => {
     const { data } = await supabase
       .from("groups")
       .select("*")
-      .eq("id", groupId)
+      .eq("id", DEFAULT_GROUP_ID)
       .single();
     setGroup(data);
   }, []);
 
-  const loadBookmarks = useCallback(async (groupId: string) => {
+  const loadBookmarks = useCallback(async () => {
     const { data } = await supabase
       .from("bookmarks")
       .select("*")
-      .eq("group_id", groupId)
+      .eq("group_id", DEFAULT_GROUP_ID)
       .order("created_at", { ascending: false });
     setBookmarks(data || []);
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        loadProfile(session.user.id).then((p) => {
-          if (p?.group_id) {
-            loadGroup(p.group_id);
-            loadBookmarks(p.group_id);
-          }
-        });
-      }
-      setLoading(false);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          loadProfile(session.user.id).then((p) => {
-            if (p?.group_id) {
-              loadGroup(p.group_id);
-              loadBookmarks(p.group_id);
-            }
-          });
-        }
-      }
-    );
-
-    return () => subscription.unsubscribe();
-  }, [loadProfile, loadGroup, loadBookmarks]);
+    Promise.all([loadGroup(), loadBookmarks()]).then(() => setLoading(false));
+  }, [loadGroup, loadBookmarks]);
 
   const handleToggleVisited = async (id: string, visited: boolean) => {
     await supabase.from("bookmarks").update({ visited }).eq("id", id);
@@ -97,35 +58,11 @@ export default function Home() {
     setBookmarks((prev) => prev.filter((b) => b.id !== id));
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
-    setProfile(null);
-    setGroup(null);
-    setBookmarks([]);
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-dvh">
         <div className="text-muted">載入中...</div>
       </div>
-    );
-  }
-
-  if (!user) return <AuthForm />;
-
-  if (!profile) {
-    return (
-      <SetupProfile
-        userId={user.id}
-        onComplete={() => loadProfile(user.id).then((p) => {
-          if (p?.group_id) {
-            loadGroup(p.group_id);
-            loadBookmarks(p.group_id);
-          }
-        })}
-      />
     );
   }
 
@@ -150,20 +87,12 @@ export default function Home() {
       <header className="sticky top-0 z-40 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-lg border-b border-border px-4 py-3">
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-bold">📍 旅遊收藏</h1>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowGroup(true)}
-              className="text-sm px-3 py-1 rounded-full bg-card border border-border"
-            >
-              👥 {group?.name || "群組"}
-            </button>
-            <button
-              onClick={handleLogout}
-              className="text-sm text-muted"
-            >
-              登出
-            </button>
-          </div>
+          <button
+            onClick={() => setShowGroup(true)}
+            className="text-sm px-3 py-1 rounded-full bg-card border border-border"
+          >
+            👥 {group?.name || "群組"}
+          </button>
         </div>
       </header>
 
@@ -187,7 +116,7 @@ export default function Home() {
           <div className="text-center py-16 text-muted">
             <div className="text-4xl mb-3">🗺️</div>
             <p>還沒有收藏</p>
-            <p className="text-sm mt-1">點右下角 + 新增第一筆吧！</p>
+            <p className="text-sm mt-1">用 LINE Bot 傳連結，或點右下角 + 新增！</p>
           </div>
         ) : (
           filtered.map((bookmark) => (
@@ -210,11 +139,11 @@ export default function Home() {
       </button>
 
       {/* Modals */}
-      {showAdd && profile.group_id && (
+      {showAdd && (
         <AddBookmark
-          groupId={profile.group_id}
-          userId={user.id}
-          onAdded={() => profile.group_id && loadBookmarks(profile.group_id)}
+          groupId={DEFAULT_GROUP_ID}
+          userId={DEFAULT_USER_ID}
+          onAdded={() => loadBookmarks()}
           onClose={() => setShowAdd(false)}
         />
       )}
