@@ -1,9 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 import { Bookmark } from "@/lib/types";
 import { CITIES, PlaceType, PLACE_TYPE_LABELS } from "@/lib/types";
 import { platformEmoji, placeTypeEmoji } from "@/lib/utils";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } }
+);
 
 const PLATFORM_LABELS: Record<string, string> = {
   instagram: "Instagram",
@@ -19,7 +26,9 @@ interface Props {
 }
 
 export default function ClientApp({ initialBookmarks, groupName }: Props) {
-  const [bookmarks] = useState(initialBookmarks);
+  const [bookmarks, setBookmarks] = useState(initialBookmarks);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ title: "", city: "", place_type: "" });
   const [filters, setFilters] = useState({
     city: "",
     district: "",
@@ -28,6 +37,33 @@ export default function ClientApp({ initialBookmarks, groupName }: Props) {
   });
 
   const districts = filters.city ? CITIES[filters.city] || [] : [];
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("確定要刪除這筆收藏嗎？")) return;
+    await supabase.from("bookmarks").delete().eq("id", id);
+    setBookmarks((prev) => prev.filter((b) => b.id !== id));
+  };
+
+  const handleToggleVisited = async (id: string, visited: boolean) => {
+    await supabase.from("bookmarks").update({ visited }).eq("id", id);
+    setBookmarks((prev) => prev.map((b) => (b.id === id ? { ...b, visited } : b)));
+  };
+
+  const startEdit = (b: Bookmark) => {
+    setEditingId(b.id);
+    setEditForm({ title: b.title || "", city: b.city || "", place_type: b.place_type || "" });
+  };
+
+  const saveEdit = async (id: string) => {
+    const updates: Record<string, string | null> = {
+      title: editForm.title || null,
+      city: editForm.city || null,
+      place_type: editForm.place_type || null,
+    };
+    await supabase.from("bookmarks").update(updates).eq("id", id);
+    setBookmarks((prev) => prev.map((b) => (b.id === id ? { ...b, ...updates } : b)));
+    setEditingId(null);
+  };
 
   const filtered = bookmarks.filter((b) => {
     if (filters.city && b.city !== filters.city) return false;
@@ -47,7 +83,7 @@ export default function ClientApp({ initialBookmarks, groupName }: Props) {
   return (
     <div className="max-w-lg mx-auto pb-24">
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-white/80 bg-stone-50/90 backdrop-blur-lg border-b border-border px-4 py-3">
+      <header className="sticky top-0 z-40 bg-stone-50/90 backdrop-blur-lg border-b border-border px-4 py-3">
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-bold">📍 旅遊收藏</h1>
           <span className="text-sm px-3 py-1 rounded-full bg-card border border-border">
@@ -124,53 +160,121 @@ export default function ClientApp({ initialBookmarks, groupName }: Props) {
           filtered.map((bookmark) => (
             <div key={bookmark.id} className="border border-border rounded-2xl overflow-hidden bg-card">
               <div className="p-4 space-y-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-base truncate">
-                      {placeTypeEmoji(bookmark.place_type)}{" "}
-                      {bookmark.title || "未命名收藏"}
-                    </h3>
-                    <p className="text-sm text-muted flex items-center gap-1 mt-0.5">
-                      {platformEmoji(bookmark.platform)}{" "}
-                      {PLATFORM_LABELS[bookmark.platform] || "其他"}
-                      {bookmark.city && (
-                        <>
-                          <span className="mx-1">·</span>
-                          {bookmark.city}
-                          {bookmark.district && ` ${bookmark.district}`}
-                        </>
-                      )}
-                    </p>
+                {editingId === bookmark.id ? (
+                  /* Edit Mode */
+                  <div className="space-y-3">
+                    <input
+                      type="text"
+                      value={editForm.title}
+                      onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                      placeholder="名稱"
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-white text-sm"
+                    />
+                    <select
+                      value={editForm.city}
+                      onChange={(e) => setEditForm({ ...editForm, city: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-white text-sm"
+                    >
+                      <option value="">選擇縣市</option>
+                      {Object.keys(CITIES).map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={editForm.place_type}
+                      onChange={(e) => setEditForm({ ...editForm, place_type: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-white text-sm"
+                    >
+                      <option value="">選擇類型</option>
+                      {(Object.entries(PLACE_TYPE_LABELS) as [PlaceType, string][]).map(([key, label]) => (
+                        <option key={key} value={key}>{label}</option>
+                      ))}
+                    </select>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => saveEdit(bookmark.id)}
+                        className="px-4 py-1.5 bg-primary text-white rounded-lg text-sm font-medium"
+                      >
+                        儲存
+                      </button>
+                      <button
+                        onClick={() => setEditingId(null)}
+                        className="px-4 py-1.5 border border-border rounded-lg text-sm text-muted"
+                      >
+                        取消
+                      </button>
+                    </div>
                   </div>
-                  <span className={`text-2xl ${bookmark.visited ? "opacity-100" : "opacity-30"}`}>
-                    ✅
-                  </span>
-                </div>
+                ) : (
+                  /* View Mode */
+                  <>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-base truncate">
+                          {placeTypeEmoji(bookmark.place_type)}{" "}
+                          {bookmark.title || "未命名收藏"}
+                        </h3>
+                        <p className="text-sm text-muted flex items-center gap-1 mt-0.5">
+                          {platformEmoji(bookmark.platform)}{" "}
+                          {PLATFORM_LABELS[bookmark.platform] || "其他"}
+                          {bookmark.city && (
+                            <>
+                              <span className="mx-1">·</span>
+                              {bookmark.city}
+                              {bookmark.district && ` ${bookmark.district}`}
+                            </>
+                          )}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleToggleVisited(bookmark.id, !bookmark.visited)}
+                        className={`text-2xl ${bookmark.visited ? "opacity-100" : "opacity-30"}`}
+                      >
+                        ✅
+                      </button>
+                    </div>
 
-                {bookmark.tags && bookmark.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {bookmark.tags.map((tag) => (
-                      <span key={tag} className="px-2 py-0.5 bg-orange-100 bg-orange-50 text-orange-700 text-orange-600 rounded-full text-xs">
-                        {tag}
+                    {bookmark.tags && bookmark.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {bookmark.tags.map((tag) => (
+                          <span key={tag} className="px-2 py-0.5 bg-orange-50 text-orange-600 rounded-full text-xs">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {bookmark.place_type && (
+                      <span className="inline-block px-2 py-0.5 bg-stone-100 rounded-full text-xs text-muted">
+                        {PLACE_TYPE_LABELS[bookmark.place_type as PlaceType] || bookmark.place_type}
                       </span>
-                    ))}
-                  </div>
-                )}
+                    )}
 
-                {bookmark.place_type && (
-                  <span className="inline-block px-2 py-0.5 bg-zinc-100 bg-stone-100 rounded-full text-xs text-muted">
-                    {PLACE_TYPE_LABELS[bookmark.place_type as PlaceType] || bookmark.place_type}
-                  </span>
-                )}
+                    <a
+                      href={bookmark.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block text-primary text-sm font-medium mt-1"
+                    >
+                      查看原始貼文 →
+                    </a>
 
-                <a
-                  href={bookmark.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block text-primary text-sm font-medium mt-1"
-                >
-                  查看原始貼文 →
-                </a>
+                    <div className="flex gap-3 pt-2 border-t border-border">
+                      <button
+                        onClick={() => startEdit(bookmark)}
+                        className="text-sm text-primary font-medium"
+                      >
+                        ✏️ 編輯
+                      </button>
+                      <button
+                        onClick={() => handleDelete(bookmark.id)}
+                        className="text-sm text-red-500 font-medium"
+                      >
+                        🗑️ 刪除
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           ))
