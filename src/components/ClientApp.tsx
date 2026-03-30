@@ -49,6 +49,11 @@ export default function ClientApp({ initialBookmarks, groupName }: Props) {
     setBookmarks((prev) => prev.map((b) => (b.id === id ? { ...b, visited } : b)));
   };
 
+  const handleReEnrich = async (id: string) => {
+    await supabase.from("bookmarks").update({ enriched_at: null, confidence: null }).eq("id", id);
+    setBookmarks((prev) => prev.map((b) => (b.id === id ? { ...b, enriched_at: null, confidence: null } : b)));
+  };
+
   const startEdit = (b: Bookmark) => {
     setEditingId(b.id);
     setEditForm({ title: b.title || "", city: b.city || "", place_type: b.place_type || "" });
@@ -259,12 +264,29 @@ export default function ClientApp({ initialBookmarks, groupName }: Props) {
                       查看原始貼文 →
                     </a>
 
+                    {bookmark.confidence !== null && bookmark.confidence < 0.7 && (
+                      <span className="inline-block px-2 py-0.5 bg-amber-50 text-amber-600 rounded-full text-xs">
+                        ⚠️ 自動辨識信心偏低，建議確認
+                      </span>
+                    )}
+                    {bookmark.enriched_at === null && (
+                      <span className="inline-block px-2 py-0.5 bg-blue-50 text-blue-500 rounded-full text-xs">
+                        🔄 等待自動辨識中...
+                      </span>
+                    )}
+
                     <div className="flex gap-3 pt-2 border-t border-border">
                       <button
                         onClick={() => startEdit(bookmark)}
                         className="text-sm text-primary font-medium"
                       >
                         ✏️ 編輯
+                      </button>
+                      <button
+                        onClick={() => handleReEnrich(bookmark.id)}
+                        className="text-sm text-blue-500 font-medium"
+                      >
+                        🔄 重新辨識
                       </button>
                       <button
                         onClick={() => handleDelete(bookmark.id)}

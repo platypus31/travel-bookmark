@@ -25,6 +25,9 @@ export function placeTypeEmoji(type: string | null): string {
     case "attraction": return "🏞️";
     case "bar": return "🍺";
     case "hotel": return "🏨";
+    case "bakery": return "🥐";
+    case "dessert": return "🍰";
+    case "nightmarket": return "🏮";
     default: return "📍";
   }
 }
