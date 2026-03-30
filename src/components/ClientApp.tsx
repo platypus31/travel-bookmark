@@ -164,6 +164,14 @@ export default function ClientApp({ initialBookmarks, groupName }: Props) {
         ) : (
           filtered.map((bookmark) => (
             <div key={bookmark.id} className="border border-border rounded-2xl overflow-hidden bg-card">
+              {bookmark.image_url && editingId !== bookmark.id && (
+                <img
+                  src={bookmark.image_url}
+                  alt={bookmark.title || ""}
+                  className="w-full h-40 object-cover"
+                  loading="lazy"
+                />
+              )}
               <div className="p-4 space-y-2">
                 {editingId === bookmark.id ? (
                   /* Edit Mode */
@@ -255,14 +263,26 @@ export default function ClientApp({ initialBookmarks, groupName }: Props) {
                       </span>
                     )}
 
-                    <a
-                      href={bookmark.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block text-primary text-sm font-medium mt-1"
-                    >
-                      查看原始貼文 →
-                    </a>
+                    <div className="flex gap-3 mt-1">
+                      <a
+                        href={bookmark.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary text-sm font-medium"
+                      >
+                        查看原始貼文 →
+                      </a>
+                      {(bookmark.title || bookmark.city) && (
+                        <a
+                          href={`https://www.google.com/maps/search/${encodeURIComponent([bookmark.title, bookmark.city, bookmark.district].filter(Boolean).join(" "))}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-green-600 text-sm font-medium"
+                        >
+                          📍 Google Maps
+                        </a>
+                      )}
+                    </div>
 
                     {bookmark.confidence !== null && bookmark.confidence < 0.7 && (
                       <span className="inline-block px-2 py-0.5 bg-amber-50 text-amber-600 rounded-full text-xs">
