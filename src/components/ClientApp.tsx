@@ -164,14 +164,6 @@ export default function ClientApp({ initialBookmarks, groupName }: Props) {
         ) : (
           filtered.map((bookmark) => (
             <div key={bookmark.id} className="border border-border rounded-2xl overflow-hidden bg-card">
-              {bookmark.image_url && editingId !== bookmark.id && (
-                <img
-                  src={bookmark.image_url}
-                  alt={bookmark.title || ""}
-                  className="w-full h-40 object-cover"
-                  loading="lazy"
-                />
-              )}
               <div className="p-4 space-y-2">
                 {editingId === bookmark.id ? (
                   /* Edit Mode */

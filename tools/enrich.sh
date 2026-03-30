@@ -22,7 +22,7 @@ fi
 # Fetch bookmarks that need enrichment:
 # - enriched_at IS NULL (never processed)
 # - OR confidence < 0.5 (low confidence, retry)
-BOOKMARKS=$(curl -sf "${SUPABASE_URL}/rest/v1/bookmarks?or=(enriched_at.is.null,confidence.lt.0.5)&select=id,title,description,url,city,district,place_type,confidence&order=created_at.desc&limit=10" \
+BOOKMARKS=$(curl -sf "${SUPABASE_URL}/rest/v1/bookmarks?or=(enriched_at.is.null,confidence.lt.0.5)&select=id,title,description,url,city,district,place_type,confidence,image_url&order=created_at.desc&limit=10" \
   -H "apikey: ${SUPABASE_KEY}" \
   -H "Authorization: Bearer ${SUPABASE_KEY}" 2>/dev/null)
 
@@ -213,6 +213,46 @@ def update_bookmark(bookmark_id, updates):
         print(f'  Update error: {e}', file=sys.stderr)
         return False
 
+def upload_image_to_storage(bookmark_id, image_url):
+    \"\"\"Download image and upload to Supabase Storage. Returns public URL or None.\"\"\"
+    try:
+        # Download image
+        req = urllib.request.Request(image_url, headers={
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+        })
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            img_data = resp.read()
+            content_type = resp.headers.get('Content-Type', 'image/jpeg')
+
+        # Determine extension
+        ext = 'jpg'
+        if 'png' in content_type:
+            ext = 'png'
+        elif 'webp' in content_type:
+            ext = 'webp'
+
+        file_path = f'{bookmark_id}.{ext}'
+
+        # Upload to Supabase Storage
+        upload_req = urllib.request.Request(
+            f'{SUPABASE_URL}/storage/v1/object/bookmark-images/{file_path}',
+            data=img_data,
+            headers={
+                'apikey': SUPABASE_KEY,
+                'Authorization': f'Bearer {SUPABASE_KEY}',
+                'Content-Type': content_type,
+                'x-upsert': 'true'
+            },
+            method='POST'
+        )
+        urllib.request.urlopen(upload_req, timeout=15)
+
+        public_url = f'{SUPABASE_URL}/storage/v1/object/public/bookmark-images/{file_path}'
+        return public_url
+    except Exception as e:
+        print(f'  Image upload error: {e}', file=sys.stderr)
+        return None
+
 bookmarks = json.load(sys.stdin)
 enriched = 0
 
@@ -222,6 +262,7 @@ for bm in bookmarks:
     desc = bm.get('description') or ''
     url = bm.get('url') or ''
     old_confidence = bm.get('confidence')
+    old_image = bm.get('image_url') or ''
     print(f'Processing: {title[:40]}... (prev confidence: {old_confidence})')
 
     # Fetch full page content for better extraction
@@ -283,6 +324,14 @@ for bm in bookmarks:
         if pt in valid_types and pt != bm.get('place_type'):
             updates['place_type'] = pt
             print(f'  Type: {pt}')
+
+    # Upload image to Supabase Storage if we have a CDN URL (IG CDN URLs expire)
+    if old_image and 'cdninstagram.com' in old_image and 'supabase' not in old_image:
+        print(f'  Uploading IG image to Storage...')
+        perm_url = upload_image_to_storage(bid, old_image)
+        if perm_url:
+            updates['image_url'] = perm_url
+            print(f'  Image saved: {perm_url[:60]}')
 
     if update_bookmark(bid, updates):
         enriched += 1
