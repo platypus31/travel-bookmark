@@ -132,6 +132,69 @@ bookmarks
 | `LINE_DEFAULT_GROUP_ID` | 預設群組 UUID |
 | `LINE_DEFAULT_USER_ID` | 預設使用者 UUID |
 
+## 換電腦完整步驟
+
+### 1. 安裝前提軟體
+```bash
+# Homebrew
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Node.js（建議用 nvm）
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
+nvm install 22
+
+# Ollama
+brew install ollama
+ollama serve   # 保持背景執行
+```
+
+### 2. Clone 並安裝
+```bash
+git clone https://github.com/platypus31/travel-bookmark.git
+cd travel-bookmark
+```
+
+### 3. 還原 .env.local
+從 Apple 備忘錄「閃念(你→AI)」→「Travel Bookmark .env.local 備份」複製內容，存為 `.env.local`：
+```bash
+vim .env.local   # 貼上備忘錄中的內容
+```
+
+### 4. 一鍵啟動
+```bash
+bash bootstrap.sh
+```
+
+### 5. 驗證
+```bash
+# enrich 正常運作
+bash tools/enrich.sh
+tail -f logs/enrich.log
+
+# LaunchAgent 已載入
+launchctl list | grep travel-bookmark
+
+# 前端本地測試
+npm run dev    # 開啟 http://localhost:3000
+```
+
+### 6. Vercel 部署（如需重新連結）
+```bash
+npm i -g vercel
+vercel login
+vercel link    # 選擇 existing project: travel-bookmark
+vercel --prod
+```
+
+## 外部服務帳號
+
+| 服務 | 用途 | 管理位置 |
+|------|------|----------|
+| **Supabase** | 資料庫 + Auth | https://supabase.com/dashboard/project/YOUR_SUPABASE_PROJECT_ID |
+| **LINE Developers** | Bot + Webhook | https://developers.line.biz/console/ |
+| **Vercel** | 前端部署 | https://vercel.com/dashboard |
+| **GitHub** | 程式碼備份 | https://github.com/platypus31/travel-bookmark |
+
 ## 常用指令
 
 ```bash
@@ -139,6 +202,17 @@ npm run dev              # 本地開發
 bash tools/enrich.sh     # 手動執行一次 enrich
 tail -f logs/enrich.log  # 查看 enrich 日誌
 vercel --prod            # 部署到 Vercel
+```
+
+## 移除
+
+```bash
+# 停止 enrich 定時任務
+launchctl unload ~/Library/LaunchAgents/travel-bookmark.enrich.plist
+rm ~/Library/LaunchAgents/travel-bookmark.enrich.plist
+
+# 刪除專案
+rm -rf ~/travel-bookmark
 ```
 
 ## 線上服務
