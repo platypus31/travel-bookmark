@@ -37,7 +37,7 @@ log "Found $COUNT bookmarks to enrich"
 
 # Process each bookmark
 echo "$BOOKMARKS" | python3 -c "
-import json, sys, urllib.request, re, html
+import json, sys, urllib.request, urllib.parse, re, html
 
 SUPABASE_URL = '${SUPABASE_URL}'
 SUPABASE_KEY = '${SUPABASE_KEY}'
@@ -190,6 +190,65 @@ def ollama_extract(title, description, page_text):
         print(f'  Ollama error: {e}', file=sys.stderr)
     return None
 
+def check_duplicate(bookmark_id, title, city):
+    """Check if another bookmark has the same title + city. Returns duplicate ID or None."""
+    if not title or len(title) < 2:
+        return None
+    # Normalize: strip whitespace, lowercase for comparison
+    norm_title = title.strip()
+    # Query for bookmarks with same title and city (excluding self)
+    params = f'title=eq.{urllib.parse.quote(norm_title)}&id=neq.{bookmark_id}&select=id,title,city,url'
+    if city:
+        params += f'&city=eq.{urllib.parse.quote(city)}'
+    try:
+        req = urllib.request.Request(
+            f'{SUPABASE_URL}/rest/v1/bookmarks?{params}&limit=1',
+            headers={
+                'apikey': SUPABASE_KEY,
+                'Authorization': f'Bearer {SUPABASE_KEY}',
+            }
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            results = json.loads(resp.read())
+            if results:
+                return results[0]
+    except Exception as e:
+        print(f'  Duplicate check error: {e}', file=sys.stderr)
+    return None
+
+def add_tag(bookmark_id, new_tag):
+    """Add a tag to bookmark's tags array if not already present."""
+    # Fetch current tags
+    try:
+        req = urllib.request.Request(
+            f'{SUPABASE_URL}/rest/v1/bookmarks?id=eq.{bookmark_id}&select=tags',
+            headers={
+                'apikey': SUPABASE_KEY,
+                'Authorization': f'Bearer {SUPABASE_KEY}',
+            }
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            rows = json.loads(resp.read())
+            tags = rows[0].get('tags') or [] if rows else []
+        if new_tag in tags:
+            return
+        tags.append(new_tag)
+        patch = json.dumps({'tags': tags}).encode()
+        req2 = urllib.request.Request(
+            f'{SUPABASE_URL}/rest/v1/bookmarks?id=eq.{bookmark_id}',
+            data=patch,
+            headers={
+                'apikey': SUPABASE_KEY,
+                'Authorization': f'Bearer {SUPABASE_KEY}',
+                'Content-Type': 'application/json',
+                'Prefer': 'return=minimal'
+            },
+            method='PATCH'
+        )
+        urllib.request.urlopen(req2, timeout=10)
+    except Exception as e:
+        print(f'  Add tag error: {e}', file=sys.stderr)
+
 def update_bookmark(bookmark_id, updates):
     \"\"\"Patch bookmark in Supabase.\"\"\"
     updates['enriched_at'] = 'now()'
@@ -336,6 +395,16 @@ for bm in bookmarks:
     if update_bookmark(bid, updates):
         enriched += 1
         print(f'  Updated (confidence: {confidence})')
+
+        # Check for same-name duplicates after enrichment
+        final_title = updates.get('title') or title
+        final_city = updates.get('city') or bm.get('city')
+        if final_title and len(final_title) >= 2:
+            dup = check_duplicate(bid, final_title, final_city)
+            if dup:
+                print(f'  ⚠️ DUPLICATE DETECTED: same as {dup["id"][:8]}... ({dup.get("title")})')
+                add_tag(bid, '疑似重複')
+                add_tag(dup['id'], '疑似重複')
     else:
         print(f'  Failed to update')
 
