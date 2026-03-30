@@ -80,22 +80,24 @@ echo ""
 echo "▶ 檢查環境變數..."
 
 if [ -f "$ENV_FILE" ]; then
-  ok ".env.local 已存在"
+  ok ".env.local 已存在（跳過）"
 else
-  warn ".env.local 不存在，建立範本..."
   cat > "$ENV_FILE" << 'ENVEOF'
-# Supabase
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+NEXT_PUBLIC_SUPABASE_URL=https://YOUR_SUPABASE_PROJECT_ID.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
 
 # LINE Bot
-LINE_CHANNEL_SECRET=your-channel-secret
-LINE_CHANNEL_ACCESS_TOKEN=your-channel-access-token
-LINE_DEFAULT_GROUP_ID=your-group-id
-LINE_DEFAULT_USER_ID=your-user-id
+LINE_CHANNEL_SECRET=YOUR_LINE_CHANNEL_SECRET
+LINE_CHANNEL_ACCESS_TOKEN=YOUR_LINE_CHANNEL_ACCESS_TOKEN
+
+# LINE Bot default group/user
+LINE_DEFAULT_GROUP_ID=YOUR_LINE_DEFAULT_GROUP_ID
+LINE_DEFAULT_USER_ID=YOUR_LINE_DEFAULT_USER_ID
+
+# Vercel
+VERCEL_TOKEN=YOUR_VERCEL_TOKEN
 ENVEOF
-  warn "請編輯 .env.local 填入實際的 API keys"
-  echo "  vim $ENV_FILE"
+  ok ".env.local 已自動建立"
 fi
 
 # ──────────────────────────────────────

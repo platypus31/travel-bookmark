@@ -154,18 +154,12 @@ git clone https://github.com/platypus31/travel-bookmark.git
 cd travel-bookmark
 ```
 
-### 3. 還原 .env.local
-從 Apple 備忘錄「閃念筆記」→「Travel Bookmark .env.local 備份」複製內容，存為 `.env.local`：
-```bash
-vim .env.local   # 貼上備忘錄中的內容
-```
-
-### 4. 一鍵啟動
+### 3. 一鍵啟動（含 .env.local 自動建立）
 ```bash
 bash bootstrap.sh
 ```
 
-### 5. 驗證
+### 4. 驗證
 ```bash
 # enrich 正常運作
 bash tools/enrich.sh
@@ -178,7 +172,7 @@ launchctl list | grep travel-bookmark
 npm run dev    # 開啟 http://localhost:3000
 ```
 
-### 6. Vercel 部署（如需重新連結）
+### 5. Vercel 部署（如需重新連結）
 ```bash
 npm i -g vercel
 vercel login
