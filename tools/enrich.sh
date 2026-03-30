@@ -105,11 +105,11 @@ def ollama_extract(title, description, page_text):
 {all_text}
 
 請提取以下欄位：
-- place_name：實際店名或景點名稱（不是文章標題，是真正的店名/地名）
+- place_name：實際店名或景點名稱（不是文章標題，是真正的店名/地名）。**重要：必須是文字中明確出現的店名，絕對不要猜測或編造不存在的名字。如果文字中沒有明確提到店名，填 null。**
 - city：台灣縣市名（不帶「市」「縣」後綴，如：台北、新北、嘉義、高雄、台東）
 - district：行政區（如：東區、左營區、中山區）。如果無法判斷具體行政區，填入縣市名
 - place_type：類型，只能是以下之一：restaurant, cafe, bar, hotel, attraction, bakery, dessert, nightmarket, other
-- confidence：你對提取結果的信心程度，0.0 到 1.0 之間的小數
+- confidence：你對提取結果的信心程度，0.0 到 1.0 之間的小數。如果店名是猜的或不確定，confidence 必須低於 0.3
 
 回傳格式（純 JSON，不要其他文字）：
 {{\"place_name\": \"...\", \"city\": \"...\", \"district\": \"...\", \"place_type\": \"...\", \"confidence\": 0.9}}
@@ -201,11 +201,13 @@ for bm in bookmarks:
         confidence = 0.5
     updates['confidence'] = confidence
 
-    # Update title if Ollama found a better place name
+    # Update title if Ollama found a better place name (only if confident enough)
     place_name = result.get('place_name')
-    if place_name and place_name != title and len(place_name) <= 40:
+    if place_name and place_name != title and len(place_name) <= 40 and confidence >= 0.5:
         updates['title'] = place_name
         print(f'  Title: {title[:30]} -> {place_name}')
+    elif place_name and confidence < 0.5:
+        print(f'  Title skipped (low confidence {confidence}): {place_name}')
 
     # Update city
     if result.get('city'):
