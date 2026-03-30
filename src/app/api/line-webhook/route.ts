@@ -94,7 +94,7 @@ function extractPlaceName(caption: string): string | null {
 }
 
 // Fetch OG meta from URL for auto-classification
-async function fetchOgMeta(url: string): Promise<{ title: string | null; description: string | null; placeName: string | null }> {
+async function fetchOgMeta(url: string): Promise<{ title: string | null; description: string | null; placeName: string | null; imageUrl: string | null }> {
   try {
     const res = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0 (compatible; TravelBookmarkBot/1.0)" },
@@ -135,13 +135,18 @@ async function fetchOgMeta(url: string): Promise<{ title: string | null; descrip
       }
     }
 
+    // Extract og:image
+    const ogImage = html.match(/<meta[^>]*property="og:image"[^>]*content="([^"]*)"/)
+      || html.match(/<meta[^>]*content="([^"]*)"[^>]*property="og:image"/);
+
     return {
       title: rawTitle,
       description: rawDesc,
       placeName,
+      imageUrl: ogImage?.[1] || null,
     };
   } catch {
-    return { title: null, description: null, placeName: null };
+    return { title: null, description: null, placeName: null, imageUrl: null };
   }
 }
 
@@ -183,6 +188,7 @@ async function handleUrl(url: string, extraText: string, replyToken: string) {
     p_platform: platform,
     p_title: title || og.title || null,
     p_description: description,
+    p_image_url: og.imageUrl,
     p_city: city,
     p_place_type: placeType,
   });
