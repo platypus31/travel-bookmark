@@ -191,7 +191,7 @@ def ollama_extract(title, description, page_text):
     return None
 
 def check_duplicate(bookmark_id, title, city):
-    """Check if another bookmark has the same title + city. Returns duplicate ID or None."""
+    \"\"\"Check if another bookmark has the same title + city. Returns duplicate ID or None.\"\"\"
     if not title or len(title) < 2:
         return None
     # Normalize: strip whitespace, lowercase for comparison
@@ -217,7 +217,7 @@ def check_duplicate(bookmark_id, title, city):
     return None
 
 def add_tag(bookmark_id, new_tag):
-    """Add a tag to bookmark's tags array if not already present."""
+    \"\"\"Add a tag to bookmark's tags array if not already present.\"\"\"
     # Fetch current tags
     try:
         req = urllib.request.Request(
