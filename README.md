@@ -155,7 +155,7 @@ cd travel-bookmark
 ```
 
 ### 3. 還原 .env.local
-從 Apple 備忘錄「閃念(你→AI)」→「Travel Bookmark .env.local 備份」複製內容，存為 `.env.local`：
+從 Apple 備忘錄「閃念筆記」→「Travel Bookmark .env.local 備份」複製內容，存為 `.env.local`：
 ```bash
 vim .env.local   # 貼上備忘錄中的內容
 ```
