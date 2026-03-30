@@ -44,30 +44,78 @@ SUPABASE_KEY = '${SUPABASE_KEY}'
 OLLAMA_URL = '${OLLAMA_URL}'
 MODEL = '${MODEL}'
 
+def resolve_short_url(url):
+    \"\"\"Resolve short URLs (xhslink.com etc.) to their final destination.\"\"\"
+    if 'xhslink.com' not in url:
+        return url
+    try:
+        req = urllib.request.Request(url, headers={
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1'
+        })
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resolved = resp.url
+            print(f'  Resolved short URL -> {resolved[:80]}')
+            return resolved
+    except Exception as e:
+        print(f'  Short URL resolve error: {e}', file=sys.stderr)
+        return url
+
+def extract_xhs_content(raw):
+    \"\"\"Extract content from Xiaohongshu __INITIAL_STATE__ embedded JSON.\"\"\"
+    state_match = re.search(r'__INITIAL_STATE__\s*=\s*(\{.+?\})\s*</script>', raw, re.DOTALL)
+    if not state_match:
+        return None
+    state_str = state_match.group(1)
+    texts = []
+    # Extract desc and title from embedded JSON
+    desc_pat = re.compile(r'\"desc\"\s*:\s*\"([^\"]{10,})\"')
+    title_pat = re.compile(r'\"title\"\s*:\s*\"([^\"]{5,})\"')
+    for m in desc_pat.findall(state_str)[:2]:
+        try:
+            decoded = m.encode('raw_unicode_escape').decode('unicode_escape', errors='replace')
+            texts.append(decoded)
+        except:
+            texts.append(m)
+    for m in title_pat.findall(state_str)[:2]:
+        try:
+            decoded = m.encode('raw_unicode_escape').decode('unicode_escape', errors='replace')
+            texts.append(decoded)
+        except:
+            texts.append(m)
+    return '\n'.join(texts)[:1500] if texts else None
+
 def fetch_page_text(url):
     \"\"\"Fetch full page content from URL for better extraction.\"\"\"
     try:
+        # Resolve short URLs first
+        url = resolve_short_url(url)
+
         req = urllib.request.Request(url, headers={
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
             'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8'
         })
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=15) as resp:
             raw = resp.read().decode('utf-8', errors='ignore')
-            # Extract og:description and any visible text from meta tags
+
+            # Xiaohongshu: extract from __INITIAL_STATE__
+            if 'xiaohongshu.com' in url:
+                xhs_content = extract_xhs_content(raw)
+                if xhs_content:
+                    print(f'  Extracted XHS content: {len(xhs_content)} chars')
+                    return xhs_content
+
+            # General: extract from OG meta tags
             texts = []
-            # OG description (usually the richest)
             og_match = re.search(r'<meta[^>]*property=[\"\\']og:description[\"\\'][^>]*content=[\"\\']([^\"\\'>]+)', raw)
             if og_match:
                 texts.append(html.unescape(og_match.group(1)))
-            # OG title
             og_title = re.search(r'<meta[^>]*property=[\"\\']og:title[\"\\'][^>]*content=[\"\\']([^\"\\'>]+)', raw)
             if og_title:
                 texts.append(html.unescape(og_title.group(1)))
-            # Also try regular description
             desc_match = re.search(r'<meta[^>]*name=[\"\\']description[\"\\'][^>]*content=[\"\\']([^\"\\'>]+)', raw)
             if desc_match:
                 texts.append(html.unescape(desc_match.group(1)))
-            # IG specific: look for shared_data or JSON-LD
+            # JSON-LD
             ld_match = re.search(r'<script type=[\"\\']application/ld\+json[\"\\']>([^<]+)</script>', raw)
             if ld_match:
                 try:
