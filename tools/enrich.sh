@@ -1,0 +1,246 @@
+#!/bin/bash
+# travel-bookmark-enrich.sh — Ollama 自動提取書籤店名/地區
+# v2: 抓完整 IG 頁面內容 + structured JSON + confidence + 更多 place_type + re-enrich
+# 由 LaunchAgent 定時執行（每 2 分鐘）
+
+set -euo pipefail
+
+SUPABASE_URL="https://YOUR_SUPABASE_PROJECT_ID.supabase.co"
+SUPABASE_KEY="YOUR_SUPABASE_ANON_KEY"
+OLLAMA_URL="http://localhost:11434/api/generate"
+MODEL="qwen2.5:3b"
+LOG="/Users/xiaoque/travel-bookmark/logs/enrich.log"
+
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG"; }
+
+# Check Ollama is running
+if ! curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
+  log "ERROR: Ollama not running, skipping"
+  exit 0
+fi
+
+# Fetch bookmarks that need enrichment:
+# - enriched_at IS NULL (never processed)
+# - OR confidence < 0.5 (low confidence, retry)
+BOOKMARKS=$(curl -sf "${SUPABASE_URL}/rest/v1/bookmarks?or=(enriched_at.is.null,confidence.lt.0.5)&select=id,title,description,url,city,district,place_type,confidence&order=created_at.desc&limit=10" \
+  -H "apikey: ${SUPABASE_KEY}" \
+  -H "Authorization: Bearer ${SUPABASE_KEY}" 2>/dev/null)
+
+COUNT=$(echo "$BOOKMARKS" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+
+if [ "$COUNT" = "0" ]; then
+  log "No bookmarks to enrich"
+  exit 0
+fi
+
+log "Found $COUNT bookmarks to enrich"
+
+# Process each bookmark
+echo "$BOOKMARKS" | python3 -c "
+import json, sys, urllib.request, re, html
+
+SUPABASE_URL = '${SUPABASE_URL}'
+SUPABASE_KEY = '${SUPABASE_KEY}'
+OLLAMA_URL = '${OLLAMA_URL}'
+MODEL = '${MODEL}'
+
+def fetch_page_text(url):
+    \"\"\"Fetch full page content from URL for better extraction.\"\"\"
+    try:
+        req = urllib.request.Request(url, headers={
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8'
+        })
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            raw = resp.read().decode('utf-8', errors='ignore')
+            # Extract og:description and any visible text from meta tags
+            texts = []
+            # OG description (usually the richest)
+            og_match = re.search(r'<meta[^>]*property=[\"\\']og:description[\"\\'][^>]*content=[\"\\']([^\"\\'>]+)', raw)
+            if og_match:
+                texts.append(html.unescape(og_match.group(1)))
+            # OG title
+            og_title = re.search(r'<meta[^>]*property=[\"\\']og:title[\"\\'][^>]*content=[\"\\']([^\"\\'>]+)', raw)
+            if og_title:
+                texts.append(html.unescape(og_title.group(1)))
+            # Also try regular description
+            desc_match = re.search(r'<meta[^>]*name=[\"\\']description[\"\\'][^>]*content=[\"\\']([^\"\\'>]+)', raw)
+            if desc_match:
+                texts.append(html.unescape(desc_match.group(1)))
+            # IG specific: look for shared_data or JSON-LD
+            ld_match = re.search(r'<script type=[\"\\']application/ld\+json[\"\\']>([^<]+)</script>', raw)
+            if ld_match:
+                try:
+                    ld = json.loads(ld_match.group(1))
+                    if isinstance(ld, dict):
+                        for key in ['articleBody', 'description', 'name', 'caption']:
+                            if key in ld:
+                                texts.append(str(ld[key]))
+                except:
+                    pass
+            combined = '\n'.join(texts)
+            return combined[:1500] if combined else None
+    except Exception as e:
+        print(f'  Page fetch error: {e}', file=sys.stderr)
+        return None
+
+def ollama_extract(title, description, page_text):
+    \"\"\"Ask Ollama to extract place info with confidence score.\"\"\"
+    # Build the best available text
+    sources = []
+    if page_text:
+        sources.append(f'網頁內容：{page_text[:1000]}')
+    if description:
+        desc_clean = html.unescape(description)
+        if len(desc_clean) > 500:
+            desc_clean = desc_clean[:500]
+        sources.append(f'描述：{desc_clean}')
+    if title:
+        sources.append(f'標題：{title}')
+
+    all_text = '\n'.join(sources) if sources else '無'
+
+    prompt = f'''你是餐廳/景點資訊提取助手。從以下文字中提取資訊，只回傳 JSON。
+
+{all_text}
+
+請提取以下欄位：
+- place_name：實際店名或景點名稱（不是文章標題，是真正的店名/地名）
+- city：台灣縣市名（不帶「市」「縣」後綴，如：台北、新北、嘉義、高雄、台東）
+- district：行政區（如：東區、左營區、中山區）。如果無法判斷具體行政區，填入縣市名
+- place_type：類型，只能是以下之一：restaurant, cafe, bar, hotel, attraction, bakery, dessert, nightmarket, other
+- confidence：你對提取結果的信心程度，0.0 到 1.0 之間的小數
+
+回傳格式（純 JSON，不要其他文字）：
+{{\"place_name\": \"...\", \"city\": \"...\", \"district\": \"...\", \"place_type\": \"...\", \"confidence\": 0.9}}
+
+如果某個欄位無法判斷，填 null（confidence 除外，必填）。'''
+
+    payload = json.dumps({
+        'model': MODEL,
+        'prompt': prompt,
+        'stream': False,
+        'format': 'json',
+        'options': {'temperature': 0.1, 'num_predict': 300}
+    }).encode()
+
+    req = urllib.request.Request(OLLAMA_URL, data=payload,
+                                  headers={'Content-Type': 'application/json'})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read())
+            text = result.get('response', '')
+            # With format: json, Ollama should return valid JSON directly
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                # Fallback: extract JSON from response text
+                match = re.search(r'\{[^{}]*\}', text)
+                if match:
+                    return json.loads(match.group())
+    except Exception as e:
+        print(f'  Ollama error: {e}', file=sys.stderr)
+    return None
+
+def update_bookmark(bookmark_id, updates):
+    \"\"\"Patch bookmark in Supabase.\"\"\"
+    updates['enriched_at'] = 'now()'
+
+    data = json.dumps(updates).encode()
+    req = urllib.request.Request(
+        f'{SUPABASE_URL}/rest/v1/bookmarks?id=eq.{bookmark_id}',
+        data=data,
+        headers={
+            'apikey': SUPABASE_KEY,
+            'Authorization': f'Bearer {SUPABASE_KEY}',
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal'
+        },
+        method='PATCH'
+    )
+    try:
+        urllib.request.urlopen(req, timeout=10)
+        return True
+    except Exception as e:
+        print(f'  Update error: {e}', file=sys.stderr)
+        return False
+
+bookmarks = json.load(sys.stdin)
+enriched = 0
+
+for bm in bookmarks:
+    bid = bm['id']
+    title = bm.get('title') or ''
+    desc = bm.get('description') or ''
+    url = bm.get('url') or ''
+    old_confidence = bm.get('confidence')
+    print(f'Processing: {title[:40]}... (prev confidence: {old_confidence})')
+
+    # Fetch full page content for better extraction
+    page_text = fetch_page_text(url) if url else None
+    if page_text:
+        print(f'  Fetched {len(page_text)} chars from page')
+
+    result = ollama_extract(title, desc, page_text)
+    if not result:
+        # Mark as processed with low confidence so it retries next time (up to 3 attempts)
+        if old_confidence is None:
+            update_bookmark(bid, {'confidence': 0.1})
+            print(f'  No result, set confidence=0.1 for retry')
+        else:
+            update_bookmark(bid, {'confidence': 0.6})
+            print(f'  No result on retry, marking as done')
+        continue
+
+    updates = {}
+    confidence = result.get('confidence', 0.5)
+    try:
+        confidence = float(confidence)
+        confidence = max(0.0, min(1.0, confidence))
+    except (ValueError, TypeError):
+        confidence = 0.5
+    updates['confidence'] = confidence
+
+    # Update title if Ollama found a better place name
+    place_name = result.get('place_name')
+    if place_name and place_name != title and len(place_name) <= 40:
+        updates['title'] = place_name
+        print(f'  Title: {title[:30]} -> {place_name}')
+
+    # Update city
+    if result.get('city'):
+        city = re.sub(r'[市縣]$', '', result['city'])
+        if city != bm.get('city'):
+            updates['city'] = city
+            print(f'  City: {city}')
+
+    # Update district (fallback to city if not detected)
+    if result.get('district'):
+        district = result['district']
+        if district != bm.get('district'):
+            updates['district'] = district
+            print(f'  District: {district}')
+    elif not bm.get('district'):
+        fallback_city = updates.get('city') or bm.get('city') or ''
+        if fallback_city:
+            updates['district'] = fallback_city
+            print(f'  District (fallback to city): {fallback_city}')
+
+    # Update place_type
+    if result.get('place_type'):
+        valid_types = ['restaurant', 'cafe', 'bar', 'hotel', 'attraction', 'bakery', 'dessert', 'nightmarket', 'other']
+        pt = result['place_type']
+        if pt in valid_types and pt != bm.get('place_type'):
+            updates['place_type'] = pt
+            print(f'  Type: {pt}')
+
+    if update_bookmark(bid, updates):
+        enriched += 1
+        print(f'  Updated (confidence: {confidence})')
+    else:
+        print(f'  Failed to update')
+
+print(f'Done: {enriched}/{len(bookmarks)} enriched')
+"
+
+log "Enrichment complete"
