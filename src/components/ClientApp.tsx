@@ -241,7 +241,7 @@ export default function ClientApp({ initialBookmarks, groupName }: Props) {
 
                     {bookmark.tags && bookmark.tags.length > 0 && (
                       <div className="flex flex-wrap gap-1">
-                        {bookmark.tags.map((tag) => (
+                        {bookmark.tags.filter(t => t !== "疑似重複").map((tag) => (
                           <span key={tag} className="px-2 py-0.5 bg-orange-50 text-orange-600 rounded-full text-xs">
                             {tag}
                           </span>
@@ -276,6 +276,11 @@ export default function ClientApp({ initialBookmarks, groupName }: Props) {
                       )}
                     </div>
 
+                    {bookmark.tags?.includes("疑似重複") && (
+                      <span className="inline-block px-2 py-0.5 bg-red-50 text-red-600 rounded-full text-xs font-medium">
+                        ⚠️ 疑似重複收藏，請確認是否為同一家店
+                      </span>
+                    )}
                     {bookmark.confidence !== null && bookmark.confidence < 0.7 && (
                       <span className="inline-block px-2 py-0.5 bg-amber-50 text-amber-600 rounded-full text-xs">
                         ⚠️ 自動辨識信心偏低，建議確認
