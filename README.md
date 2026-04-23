@@ -1,106 +1,262 @@
-# 📍 Travel Bookmark 旅遊收藏
+# 📍 Travel Bookmark 旅遊收藏機器人
 
-家庭共享美食景點收藏平台 — 在 LINE 群組傳連結自動收藏，Ollama 本地 AI 自動辨識店名/地區，網頁即時瀏覽篩選。
+> 在 LINE 群組丟美食/景點連結，AI 自動幫你整理店名、地區、分類，網頁一鍵瀏覽。
 
-## 架構總覽
+跟家人朋友開一個 LINE 群組，平常看到好吃的餐廳就丟 IG / 小紅書的連結進去，機器人會自動：
 
+✅ 存進雲端資料庫（永不遺失）
+✅ 用 AI 讀懂內容，自動填好店名、縣市、分類（🍽️ 餐廳 / ☕ 咖啡廳 / 🏞️ 景點 / 🍺 酒吧 / ...）
+✅ 在手機友善的網頁上顯示，可以篩選「高雄 → 左營 → 咖啡廳」
+✅ 去過的打勾、沒去過的保留下次再試
+
+**手機丟連結就好，不用打字、不用手動分類。**
+
+---
+
+## 🚀 一鍵部署（3 分鐘）
+
+### 第 1 步：部署到 Vercel
+
+點這個按鈕，Vercel 會引導你 fork 專案 + 自動部署：
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/platypus31/travel-bookmark&env=NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_ANON_KEY,LINE_CHANNEL_SECRET,LINE_CHANNEL_ACCESS_TOKEN,LINE_DEFAULT_GROUP_ID,LINE_DEFAULT_USER_ID&envDescription=照下面教學取得這6個值&project-name=travel-bookmark&repository-name=travel-bookmark)
+
+> 按下去 Vercel 會要你填 6 個環境變數（看下面第 2 和 3 步怎麼拿到）。
+
+### 第 2 步：建 Supabase 資料庫（拿 2 個變數）
+
+1. 點 👉 [**建立新 Supabase 專案**](https://supabase.com/dashboard/new/_/new-project)
+2. 設定：Name: `travel-bookmark` / Region: `Tokyo` / Plan: `Free`
+3. 等 2 分鐘建好後，點左邊 **SQL Editor** → **New query** → 把 [supabase-schema.sql](./supabase-schema.sql) 全文貼上 → **Run**
+4. 點左邊 **Project Settings** → **API**，複製：
+   - `Project URL` → 填 Vercel 的 `NEXT_PUBLIC_SUPABASE_URL`
+   - `anon public` key → 填 Vercel 的 `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+
+另外 `LINE_DEFAULT_GROUP_ID` 和 `LINE_DEFAULT_USER_ID` 直接填：
 ```
-LINE 群組傳連結
-    ↓
-Vercel webhook（即時存入 Supabase）
-    ↓
-Ollama enrich（每 2 分鐘，本地 AI 自動補齊店名/地區/分類）
-    ↓
-Next.js 網頁（瀏覽/篩選/編輯）
+LINE_DEFAULT_GROUP_ID = 00000000-0000-0000-0000-000000000001
+LINE_DEFAULT_USER_ID  = 00000000-0000-0000-0000-000000000002
 ```
 
-## 功能
+### 第 3 步：建 LINE Bot（拿 2 個變數）
 
-### LINE Bot
-- 在群組傳 IG / 小紅書 / YouTube / TikTok 連結 → 自動收藏
-- 自動抓取 OG metadata（標題、描述、封面圖）
-- 重複連結自動擋（同群組 URL unique constraint）
-- 支援查詢：傳「高雄」列出該縣市所有收藏
+1. 點 👉 [**LINE Developers Console**](https://developers.line.biz/console/) 登入
+2. **Create a new provider**（第一次用）→ 名字隨便取（例如「我的 Bot」）
+3. **Create a Messaging API channel**
+4. 建好後：
+   - **Basic settings** 頁最下 → 複製 `Channel secret` → 填 Vercel 的 `LINE_CHANNEL_SECRET`
+   - **Messaging API** 頁往下滑 → 點 `Issue` 發行 `Channel access token` → 複製 → 填 Vercel 的 `LINE_CHANNEL_ACCESS_TOKEN`
 
-### Ollama 自動 Enrich
-- 每 2 分鐘掃描未處理的書籤
-- 抓取完整 IG 頁面內容（不只 OG meta），提升辨識準確率
-- 使用 `qwen2.5:3b` 本地模型，完全免費無額度限制
-- 結構化 JSON 輸出（`format: json`），穩定可靠
-- 自動提取：店名、縣市、行政區、分類
-- Confidence 信心分數：低於 0.5 自動重試，低於 0.7 網頁提示確認
-- 行政區抓不到時自動 fallback 到縣市名
+**Vercel 6 個變數填完後按 Deploy，等 2 分鐘部署完。**
 
-### 網頁前端
-- 手機優先設計，加到主畫面像 App 使用
-- 篩選：縣市 → 區域 → 類型，搜尋名稱/標籤
-- 編輯：手動修正店名、縣市、分類
-- 🔄 重新辨識：一鍵清除讓 Ollama 重跑
-- ⚠️ 低信心提示：自動辨識不確定時顯示警告
-- ✅ 已造訪標記
-- 🗑️ 刪除收藏
+### 第 4 步：把 Vercel 網址填回 LINE Bot
 
-### 分類類型
-🍽️ 餐廳 · ☕ 咖啡廳 · 🏞️ 景點 · 🍺 酒吧 · 🏨 住宿 · 🥐 烘焙 · 🍰 甜點 · 🏮 夜市
+1. Vercel 部署完會給你一個網址，例如 `https://travel-bookmark-xxx.vercel.app`
+2. 回到 LINE Developers Console → 你的 Bot → **Messaging API** → **Webhook URL**
+3. 貼上：`https://travel-bookmark-xxx.vercel.app/api/line-webhook`
+4. 按 **Verify** → 看到 Success
+5. **Use webhook** 打開 ✅
+6. 往下 **Auto-reply messages** → 關掉（不然 Bot 會自動回罐頭訊息）
 
-## 一鍵安裝
+### 第 5 步：把 Bot 加進 LINE 群組
+
+1. LINE Developers Console → **Messaging API** 頁 → 掃 **QR code** 加 Bot 好友
+2. 設定裡開啟 **Allow bot to join group chats**
+3. 開一個 LINE 群組 → 把 Bot 邀進來
+
+### 第 6 步：在本機跑 AI 整理
+
+AI 辨識店名要在你的 Mac 跑（免費，不用額度）：
 
 ```bash
-git clone https://github.com/platypus31/travel-bookmark.git
+# 1. 裝需要的工具（第一次才要）
+brew install node ollama
+ollama serve &
+ollama pull qwen2.5:3b
+
+# 2. 下載程式碼 + 一鍵設定
+git clone https://github.com/你的GitHub帳號/travel-bookmark.git
 cd travel-bookmark
 bash bootstrap.sh
 ```
 
-Bootstrap 會自動：
-1. 安裝 Node.js 依賴
-2. 檢查/下載 Ollama 模型（qwen2.5:3b）
-3. 建立 LaunchAgent 定時 enrich（每 2 分鐘）
-4. 建立 `.env.local` 範本
-5. 驗證所有元件
+`bootstrap.sh` 會引導你填入 6 個環境變數（跟 Vercel 一樣的值），自動：
+- 建立 `.env.local`
+- 安裝套件
+- 設定每 2 分鐘跑一次 AI 整理（LaunchAgent）
 
-### 前提條件
-- macOS（LaunchAgent 定時任務）
-- Node.js 18+
-- Ollama（`brew install ollama`）
-- Vercel 帳號（前端部署）
+### 第 7 步：測試
 
-## 專案結構
+打開 LINE 群組，丟一個 IG 連結：
 
+```
+https://www.instagram.com/p/xxxxx/
+```
+
+等 5 秒 → 刷新 Vercel 網址 → 應該看到這筆。
+等 2 分鐘（AI 整理）→ 刷新 → 店名 / 縣市 / 分類自動填好。
+
+✅ **完成！開始用 LINE 群組收藏美食景點吧。**
+
+---
+
+## 🎬 這個東西適合誰？
+
+- **跟家人共享口袋名單**：爸媽看到 IG 美食想存起來下次去，不用另外用 Google Keep / Notion
+- **朋友旅遊規劃**：大家把想去的餐廳丟進 LINE 群組，自動彙整出旅遊手冊
+- **個人備忘**：自己看到什麼店想試試，直接丟給自己用的 LINE Bot 就存起來
+
+---
+
+## 🗺️ 怎麼運作的（架構圖）
+
+```
+   你在 LINE 丟連結（IG / 小紅書 / TikTok / YouTube）
+              ↓
+        LINE Bot 收到
+              ↓
+      Vercel 上的小程式（webhook）
+              ↓
+      存進 Supabase 資料庫
+              ↓
+  每 2 分鐘，Mac 本機 AI（Ollama + qwen2.5:3b）讀標題
+    幫你填好：店名、縣市、區域、分類
+              ↓
+      打開網頁，看整理好的收藏
+```
+
+**三個免費服務 + 一台 Mac**，全部不用付錢。
+
+---
+
+## 🌐 重要網址（一鍵直達）
+
+| 要做什麼 | 直達連結 |
+|---|---|
+| 🚀 部署到 Vercel | [一鍵 Deploy](https://vercel.com/new/clone?repository-url=https://github.com/platypus31/travel-bookmark) |
+| 🗄️ 建 Supabase 資料庫 | [一鍵 New Project](https://supabase.com/dashboard/new/_/new-project) |
+| 🤖 建 LINE Bot | [LINE Developers Console](https://developers.line.biz/console/) |
+| 📊 管理 Supabase | [Supabase Dashboard](https://supabase.com/dashboard) |
+| 🌍 管理 Vercel | [Vercel Dashboard](https://vercel.com/dashboard) |
+| 📖 LINE Messaging API 文件 | [官方文件](https://developers.line.biz/zh-hant/docs/messaging-api/) |
+| 📖 Next.js 說明 | [Next.js 文件](https://nextjs.org/docs) |
+| 📖 Supabase 說明 | [Supabase 文件](https://supabase.com/docs) |
+| 💻 本專案 GitHub | [platypus31/travel-bookmark](https://github.com/platypus31/travel-bookmark) |
+
+---
+
+## ❓ 常見問題 (FAQ)
+
+### Q1：我完全不懂終端機，媽媽也要用，還能設定嗎？
+第 1~5 步是純網頁點按鈕，國中生也會。只有第 6 步（本機跑 AI）需要打幾行指令，建議找朋友幫一次，之後每天用只是在 LINE 丟連結。
+
+### Q2：一定要 Mac 嗎？
+**Vercel + LINE + Supabase 部分不用**（純網路服務，手機也能管）。只有「本機 AI 整理」部分（第 6 步）需要 Mac（用 LaunchAgent 每 2 分鐘跑）。
+
+**不裝第 6 步也能用**，只是書籤不會自動填店名/分類，需要自己手動補。
+
+### Q3：要付錢嗎？
+全部免費：
+- LINE Messaging API：每月 500 通免費（接收訊息不算）
+- Supabase Free：500MB 資料庫（可存幾萬筆書籤）
+- Vercel Free：個人專案免費
+- Ollama：本機跑，完全免費
+
+### Q4：我的資料安全嗎？
+- 資料存你自己的 Supabase（非第三方）
+- LINE Bot token 只有你知道
+- GitHub 上的程式碼**不含**任何 token（`.env.local` 被 `.gitignore` 排除）
+
+### Q5：Ollama 要一直開著嗎？
+`ollama serve` 要在背景執行才能自動整理書籤。可以設定成 Mac 開機自動跑（`brew services start ollama`）。
+
+不想開也行 — LINE 丟的連結會停在「未處理」，下次開 Ollama 時會自動補上。
+
+### Q6：LINE 丟連結沒反應怎麼辦？
+1. 檢查 Webhook URL 對不對（第 4 步）
+2. 點 Verify 看有沒有 Success
+3. 檢查 Use webhook 是否開啟
+4. 看 Vercel Logs：Vercel Dashboard → 你的專案 → Logs
+
+### Q7：AI 辨識錯店名怎麼辦？
+- 網頁上每張卡片都有 **🔄 重新辨識** 按鈕，按了清除讓 Ollama 重跑
+- 也可以手動點 **編輯** 改店名/縣市/分類
+
+### Q8：想停掉機器人？
+```bash
+# 停止每 2 分鐘的 AI 整理
+launchctl unload ~/Library/LaunchAgents/travel-bookmark.enrich.plist
+rm ~/Library/LaunchAgents/travel-bookmark.enrich.plist
+
+# 停 LINE Bot：LINE Developers Console → Use webhook → 關掉
+# 停 Vercel：Vercel Dashboard → 專案 → Settings → Delete Project
+```
+
+### Q9：fork 後 Vercel 找不到 repo？
+Vercel 只會掃你登入的 GitHub 帳號下的 repo。先到 https://github.com/platypus31/travel-bookmark 右上角按 **Fork** 複製一份到你自己名下，再到 Vercel 就看得到了。
+
+### Q10：想改介面/功能？
+程式碼全部開源（MIT 授權），fork 後隨便改。主要檔案：
+- `src/app/page.tsx` — 主頁面
+- `src/components/` — UI 元件
+- `src/app/api/line-webhook/route.ts` — LINE Bot 邏輯
+- `tools/enrich.sh` — AI 整理腳本
+
+---
+
+## 🔧 技術架構（給開發者看的）
+
+| 層級 | 技術 | 說明 |
+|---|---|---|
+| 前端 | Next.js 16 + TypeScript + Tailwind | 手機優先 SSR |
+| 部署 | Vercel | GitHub push 自動部署 |
+| 資料庫 | Supabase (PostgreSQL) | 東京 ap-northeast-1 |
+| LINE Bot | Messaging API + Webhook | 群組自動收藏 |
+| AI Enrich | Ollama + qwen2.5:3b | 本機免費，`format: json` 結構化輸出 |
+| 定時任務 | macOS LaunchAgent | 每 2 分鐘掃未處理 |
+
+### 專案結構
 ```
 travel-bookmark/
 ├── src/
 │   ├── app/
-│   │   ├── page.tsx                  # 主頁面（SSR 書籤列表）
+│   │   ├── page.tsx                  # 主頁（SSR 書籤列表）
 │   │   ├── api/line-webhook/route.ts # LINE Bot webhook
-│   │   └── api/preview/route.ts      # URL 預覽 API
+│   │   └── api/preview/route.ts      # URL metadata 預覽
 │   ├── components/
 │   │   ├── ClientApp.tsx             # 書籤列表 + 篩選 + 編輯
-│   │   ├── AddBookmark.tsx           # 手動新增收藏
-│   │   ├── BookmarkCard.tsx          # 單一書籤卡片
-│   │   └── FilterBar.tsx             # 篩選列
+│   │   ├── AddBookmark.tsx
+│   │   ├── BookmarkCard.tsx
+│   │   └── FilterBar.tsx
 │   └── lib/
-│       ├── types.ts                  # 型別 + 台灣縣市區域資料
-│       └── utils.ts                  # 平台偵測、emoji helper
+│       ├── types.ts
+│       └── utils.ts
 ├── tools/
-│   └── enrich.sh                     # Ollama 自動 enrich 腳本
-├── bootstrap.sh                      # 一鍵安裝
-├── logs/                             # enrich 日誌
-└── .env.local                        # API keys（gitignore）
+│   └── enrich.sh                     # Ollama 自動 enrich
+├── bootstrap.sh                      # 互動式一鍵安裝
+├── supabase-schema.sql               # 一鍵建表 SQL
+└── .env.local                        # API keys（gitignore 排除）
 ```
 
-## 技術架構
+### 環境變數對照
+| 變數名 | 來源 |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Project Settings → API |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Project Settings → API |
+| `LINE_CHANNEL_SECRET` | LINE Dev Console → Basic settings |
+| `LINE_CHANNEL_ACCESS_TOKEN` | LINE Dev Console → Messaging API |
+| `LINE_DEFAULT_GROUP_ID` | 固定 `00000000-0000-0000-0000-000000000001` |
+| `LINE_DEFAULT_USER_ID` | 固定 `00000000-0000-0000-0000-000000000002` |
 
-| 層級 | 技術 | 說明 |
-|------|------|------|
-| 前端 | Next.js 16 + TypeScript + Tailwind CSS | 手機優先 |
-| 部署 | Vercel | push 自動部署 |
-| 資料庫 | Supabase (PostgreSQL) | 東京 ap-northeast-1 |
-| LINE Bot | Messaging API + Webhook | 群組收藏 |
-| AI Enrich | Ollama + qwen2.5:3b | 本地免費 |
-| 定時任務 | macOS LaunchAgent | 每 2 分鐘 |
+### 常用指令
+```bash
+npm run dev              # 本地開發 (http://localhost:3000)
+bash tools/enrich.sh     # 手動跑一次 AI 整理
+tail -f logs/enrich.log  # 看 AI 整理的 log
+vercel --prod            # 手動部署到 Vercel
+```
 
-## 資料庫結構
-
+### 資料庫結構
 ```
 bookmarks
 ├── id            UUID PK
@@ -108,108 +264,32 @@ bookmarks
 ├── created_by    FK → profiles
 ├── url           原始連結（group_id + url unique）
 ├── platform      instagram | xiaohongshu | youtube | tiktok | other
-├── title         店名（Ollama 自動提取）
+├── title         店名（Ollama 提取）
 ├── description   原始描述
 ├── image_url     封面圖
 ├── city          縣市（不帶市/縣後綴）
 ├── district      行政區（fallback 到縣市）
-├── place_type    restaurant | cafe | bar | hotel | attraction | bakery | dessert | nightmarket | other
-├── tags          TEXT[] 標籤
+├── place_type    restaurant | cafe | bar | hotel | attraction |
+│                 bakery | dessert | nightmarket | other
+├── tags          TEXT[]
 ├── visited       是否去過
 ├── confidence    AI 辨識信心（0.0~1.0）
 ├── enriched_at   enrich 完成時間
 └── created_at
 ```
 
-## 環境變數
+### 分類類型
+🍽️ 餐廳 · ☕ 咖啡廳 · 🏞️ 景點 · 🍺 酒吧 · 🏨 住宿 · 🥐 烘焙 · 🍰 甜點 · 🏮 夜市
 
-| 變數名 | 說明 |
-|--------|------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase 專案 URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase 匿名金鑰 |
-| `LINE_CHANNEL_SECRET` | LINE Bot Channel Secret |
-| `LINE_CHANNEL_ACCESS_TOKEN` | LINE Bot Access Token |
-| `LINE_DEFAULT_GROUP_ID` | 預設群組 UUID |
-| `LINE_DEFAULT_USER_ID` | 預設使用者 UUID |
+---
 
-## 換電腦完整步驟
+## 📬 Feedback / Issues
 
-### 1. 安裝前提軟體
-```bash
-# Homebrew
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+這是個人專案，歡迎 fork 改造。有問題開 GitHub Issue：
+https://github.com/platypus31/travel-bookmark/issues
 
-# Node.js（建議用 nvm）
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
-nvm install 22
+---
 
-# Ollama
-brew install ollama
-ollama serve   # 保持背景執行
-```
+## 📄 授權
 
-### 2. Clone 並安裝
-```bash
-git clone https://github.com/platypus31/travel-bookmark.git
-cd travel-bookmark
-```
-
-### 3. 一鍵啟動（含 .env.local 自動建立）
-```bash
-bash bootstrap.sh
-```
-
-### 4. 驗證
-```bash
-# enrich 正常運作
-bash tools/enrich.sh
-tail -f logs/enrich.log
-
-# LaunchAgent 已載入
-launchctl list | grep travel-bookmark
-
-# 前端本地測試
-npm run dev    # 開啟 http://localhost:3000
-```
-
-### 5. Vercel 部署（如需重新連結）
-```bash
-npm i -g vercel
-vercel login
-vercel link    # 選擇 existing project: travel-bookmark
-vercel --prod
-```
-
-## 外部服務帳號
-
-| 服務 | 用途 | 管理位置 |
-|------|------|----------|
-| **Supabase** | 資料庫 + Auth | https://supabase.com/dashboard/project/YOUR_SUPABASE_PROJECT_ID |
-| **LINE Developers** | Bot + Webhook | https://developers.line.biz/console/ |
-| **Vercel** | 前端部署 | https://vercel.com/dashboard |
-| **GitHub** | 程式碼備份 | https://github.com/platypus31/travel-bookmark |
-
-## 常用指令
-
-```bash
-npm run dev              # 本地開發
-bash tools/enrich.sh     # 手動執行一次 enrich
-tail -f logs/enrich.log  # 查看 enrich 日誌
-vercel --prod            # 部署到 Vercel
-```
-
-## 移除
-
-```bash
-# 停止 enrich 定時任務
-launchctl unload ~/Library/LaunchAgents/travel-bookmark.enrich.plist
-rm ~/Library/LaunchAgents/travel-bookmark.enrich.plist
-
-# 刪除專案
-rm -rf ~/travel-bookmark
-```
-
-## 線上服務
-
-- **網站**: https://travel-bookmark-sigma.vercel.app
-- **GitHub**: https://github.com/platypus31/travel-bookmark
+MIT — 自由使用、修改、分享。
