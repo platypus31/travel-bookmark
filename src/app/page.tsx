@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { Bookmark } from "@/lib/types";
 import ClientApp from "@/components/ClientApp";
 
-const DEFAULT_GROUP_ID = "YOUR_LINE_DEFAULT_GROUP_ID";
+const DEFAULT_GROUP_ID = process.env.LINE_DEFAULT_GROUP_ID || "YOUR_LINE_DEFAULT_GROUP_ID";
 
 async function getBookmarks(): Promise<Bookmark[]> {
   const supabase = createClient(
