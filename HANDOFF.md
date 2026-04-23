@@ -1,10 +1,42 @@
 # Travel Bookmark — 交班清單
 
-上次更新：2026-03-30
+上次更新：2026-04-23（repo 轉 public，個資 wash，.env 改用 secret Gist 備份）
 
 ## 專案狀態：完整運行中
 
 LINE Bot 收藏 + Ollama 自動辨識 + 網頁瀏覽篩選，全部獨立運行。
+
+## 🆕 換電腦 SOP（2026-04-23 新）
+
+repo 是 public 不含 `.env.local`。個人 credential 存在 **secret Gist**（不公開但知道 URL 可讀）。
+
+```bash
+# 1. 裝工具
+brew install node ollama gh
+gh auth login  # 登入你的 GitHub 帳號
+
+# 2. clone repo
+git clone https://github.com/platypus31/travel-bookmark.git
+cd travel-bookmark
+
+# 3. 從自己的 secret Gist 拉 .env.local
+gh gist list --limit 100 | grep travel-bookmark       # 找 gist ID
+gh gist view <GIST_ID> > .env.local                   # 拉回 .env.local
+# （如果忘了 gist ID，去 https://gist.github.com/ 找）
+
+# 4. 跑 bootstrap
+ollama serve &
+ollama pull qwen2.5:3b
+bash bootstrap.sh   # 偵測到 .env.local 已存在會跳過互動設定
+
+# 5. 本機測試
+npm run dev
+```
+
+**更新 .env.local 後同步到 Gist**：
+```bash
+gh gist edit <GIST_ID> -f .env.local .env.local
+```
 
 ## 架構
 
