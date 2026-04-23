@@ -27,6 +27,25 @@
 
 ---
 
+## 🔄 換電腦？一行指令還原所有設定（給你自己用）
+
+如果你本來就用過這專案，換新電腦不用重填 token：
+
+```bash
+brew install gh && gh auth login
+git clone https://github.com/platypus31/travel-bookmark.git && cd travel-bookmark
+bash scripts/restore-env.sh    # 從你 GitHub 的 secret Gist 自動拉 .env.local
+```
+
+首次使用後備份 `.env.local` 到 Gist：
+```bash
+bash scripts/backup-env.sh    # 建 / 更新 secret Gist
+```
+
+> 只有登入你 GitHub 帳號的電腦才看得到 Gist（朋友 clone 看不到 → 他們會走下面「自己動手」流程）。
+
+---
+
 ## 🚀 或自己動手：一鍵部署（3 分鐘）
 
 ### 第 1 步：部署到 Vercel
