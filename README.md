@@ -13,7 +13,21 @@
 
 ---
 
-## 🚀 一鍵部署（3 分鐘）
+## 🤖 最輕鬆路徑：讓 AI 當你的設定助手
+
+不想讀長文？打開 [Claude.ai](https://claude.ai) 或 [ChatGPT](https://chat.openai.com)，照 [SETUP-WITH-AI.md](./SETUP-WITH-AI.md) 複製一段 prompt 貼進去，AI 會變成你的專屬 setup 助手：
+
+✅ 一次只問你一步，等你做完才進下一步
+✅ 貼給你該點的連結 + 要複製哪個欄位
+✅ 收到你給的值（Supabase URL / LINE token）自動記錄
+✅ 最後彙整成 6 個環境變數 copy-paste 包
+✅ 卡住就貼錯誤訊息給 AI，自動診斷
+
+**👉 看 [SETUP-WITH-AI.md](./SETUP-WITH-AI.md) 複製 prompt**
+
+---
+
+## 🚀 或自己動手：一鍵部署（3 分鐘）
 
 ### 第 1 步：部署到 Vercel
 
