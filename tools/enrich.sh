@@ -12,12 +12,15 @@ ENV_FILE="/Users/xiaoque/travel-bookmark/.env.local"
 if [ -f "$ENV_FILE" ]; then
   SUPABASE_URL=$(grep '^NEXT_PUBLIC_SUPABASE_URL=' "$ENV_FILE" | cut -d= -f2- | tr -d '"' | head -1)
   SUPABASE_KEY=$(grep '^NEXT_PUBLIC_SUPABASE_ANON_KEY=' "$ENV_FILE" | cut -d= -f2- | tr -d '"' | head -1)
+  GEMINI_API_KEY=$(grep '^GEMINI_API_KEY=' "$ENV_FILE" | cut -d= -f2- | tr -d '"' | head -1)
 else
   SUPABASE_URL="${NEXT_PUBLIC_SUPABASE_URL:-https://YOUR_SUPABASE_PROJECT_ID.supabase.co}"
   SUPABASE_KEY="${NEXT_PUBLIC_SUPABASE_ANON_KEY:-YOUR_SUPABASE_ANON_KEY}"
+  GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 fi
 OLLAMA_URL="http://localhost:11434/api/generate"
-MODEL="qwen2.5:3b"
+OLLAMA_MODEL="qwen2.5:3b"
+GEMINI_MODEL="gemini-2.5-flash"
 LOG="/Users/xiaoque/travel-bookmark/logs/enrich.log"
 
 # Pre-flight: 拒絕在 placeholder 狀態啟動
@@ -57,7 +60,9 @@ import json, sys, urllib.request, urllib.parse, re, html
 SUPABASE_URL = '${SUPABASE_URL}'
 SUPABASE_KEY = '${SUPABASE_KEY}'
 OLLAMA_URL = '${OLLAMA_URL}'
-MODEL = '${MODEL}'
+OLLAMA_MODEL = '${OLLAMA_MODEL}'
+GEMINI_API_KEY = '${GEMINI_API_KEY}'
+GEMINI_MODEL = '${GEMINI_MODEL}'
 
 def resolve_short_url(url):
     \"\"\"Resolve short URLs (xhslink.com etc.) to their final destination.\"\"\"
@@ -147,63 +152,154 @@ def fetch_page_text(url):
         print(f'  Page fetch error: {e}', file=sys.stderr)
         return None
 
-def ollama_extract(title, description, page_text):
-    \"\"\"Ask Ollama to extract place info with confidence score.\"\"\"
-    # Build the best available text
+def _build_extract_prompt(title, description, page_text):
+    \"\"\"Build the extraction prompt. Shared by Gemini + Ollama.\"\"\"
     sources = []
     if page_text:
-        sources.append(f'網頁內容：{page_text[:1000]}')
+        sources.append(f'網頁內容：{page_text[:1200]}')
     if description:
         desc_clean = html.unescape(description)
-        if len(desc_clean) > 500:
-            desc_clean = desc_clean[:500]
+        if len(desc_clean) > 600:
+            desc_clean = desc_clean[:600]
         sources.append(f'描述：{desc_clean}')
     if title:
         sources.append(f'標題：{title}')
 
     all_text = '\n'.join(sources) if sources else '無'
 
-    prompt = f'''你是餐廳/景點資訊提取助手。從以下文字中提取資訊，只回傳 JSON。
+    # 2026-04-24 prompt 升級（配合 Gemini 2.5 Flash 能力）：
+    # - 加入「地標 → 行政區」推理規則（西子灣→鼓山區、逢甲→西屯區 等）
+    # - 強化 place_type 判斷（「以為 X 實際 Y」類誘餌句式要挑出真正類型）
+    return f'''你是台灣餐廳 / 景點 / 旅遊地點資訊提取助手。從以下文字中提取結構化資訊。
 
 {all_text}
 
-請提取以下欄位：
-- place_name：實際店名或景點名稱（不是文章標題，是真正的店名/地名）。**重要：必須是文字中明確出現的店名，絕對不要猜測或編造不存在的名字。如果文字中沒有明確提到店名，填 null。**
-- city：台灣縣市名（不帶「市」「縣」後綴，如：台北、新北、嘉義、高雄、台東）
-- district：行政區（如：東區、左營區、中山區）。如果無法判斷具體行政區，填入縣市名
-- place_type：類型，只能是以下之一：restaurant, cafe, bar, hotel, attraction, bakery, dessert, nightmarket, other
-- confidence：你對提取結果的信心程度，0.0 到 1.0 之間的小數。如果店名是猜的或不確定，confidence 必須低於 0.3
+請提取以下欄位，回傳純 JSON 不要其他文字：
 
-回傳格式（純 JSON，不要其他文字）：
+- **place_name**：實際店名或景點名稱（不是 IG 文章標題，是真正的店名 / 地名）。
+  - ⚠️ 必須是文字中明確出現的店名，絕不猜測或編造。若文字沒明確提到，填 null。
+  - 🎯 IG 常見格式「店名：XXX」「地址：XXX」「#tag 店名」都可以抓。
+
+- **city**：台灣縣市名（不帶「市」「縣」後綴）。例：台北、新北、嘉義、高雄、台東、南投、彰化、宜蘭、花蓮。
+  - ⚠️ 若描述說「台南」但地址是「高雄市鳳山區」以**地址為準**。
+
+- **district**：**具體行政區**（必填，不要只填縣市名 fallback）。如：東區、左營區、中山區、鼓山區、苓雅區、新興區、鳳山區、前鎮區、三民區、仁愛鄉、太麻里。
+  - 🎯 **地標 → 行政區推理**（Gemini 應該做得到）：
+    - 高雄：西子灣 / 哈瑪星 / 駁二 → 鼓山區；蓮池潭 / 巨蛋 / 瑞豐 → 左營區；新崛江 / 玉竹街 → 新興區；衛武營 → 苓雅區；夢時代 → 前鎮區；佛光山 → 大樹區
+    - 台北：信義 101 → 信義區；東區 / 頂好 → 大安區；饒河 / 松山車站 → 松山區；迪化街 → 大同區
+    - 台中：勤美 / 草悟道 → 西區；逢甲 → 西屯區；國美館 → 西區；東海 → 龍井區
+    - 台南：赤崁 / 國華街 / 神農街 → 中西區；奇美博物館 → 仁德區；安平古堡 → 安平區
+    - 嘉義：文化路夜市 / 嘉義車站 → 東區
+  - 若真的完全無法判斷具體行政區，才用縣市名 fallback。
+
+- **place_type**：類型，嚴格從以下挑一個：restaurant, cafe, bar, hotel, attraction, bakery, dessert, nightmarket, other
+  - 🎯 判斷原則：
+    - 主打「咖啡廳 / café / coffee / 咖啡館」→ cafe（即使也賣輕食）
+    - 主打「酒吧 / bar / pub / 調酒」→ bar
+    - 主打「麵包 / 烘焙 / bakery」→ bakery
+    - 主打「甜點 / 蛋糕 / 布丁 / 豆花 / 刨冰 / 泡芙」→ dessert
+    - 自然景點 / 溫泉 / 步道 / 峽谷 / 展覽 → attraction
+    - 夜市 / 市集 → nightmarket
+    - 早午餐 / 牛排 / 火鍋 / 川菜 / 日料 / 韓食 / 拉麵 / 漢堡 → restaurant
+  - ⚠️ **誘餌句式注意**：若 title 說「以為是 X，結果是 Y」，以 **Y** 為準（例：「以為網美咖啡廳結果是中式料理」→ place_type = restaurant）
+
+- **confidence**：提取結果的整體信心（0.0-1.0）。
+  - 店名明確 + 地址明確 + 類型清楚 → 0.9
+  - 店名有但地址靠推理（地標→行政區）→ 0.8
+  - 店名靠猜或文字模糊 → < 0.4
+
+回傳格式（純 JSON）：
 {{\"place_name\": \"...\", \"city\": \"...\", \"district\": \"...\", \"place_type\": \"...\", \"confidence\": 0.9}}
 
-如果某個欄位無法判斷，填 null（confidence 除外，必填）。'''
+無法判斷的欄位填 null（confidence 除外，必填）。'''
 
+
+def gemini_extract(title, description, page_text):
+    \"\"\"2026-04-24 主模型：Gemini 2.5 Flash。品質 > Ollama qwen2.5:3b，每天 1500 次免費。\"\"\"
+    if not GEMINI_API_KEY:
+        return None
+    prompt = _build_extract_prompt(title, description, page_text)
+    endpoint = f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}'
     payload = json.dumps({
-        'model': MODEL,
+        'contents': [{'parts': [{'text': prompt}]}],
+        'generationConfig': {
+            'temperature': 0.1,
+            'maxOutputTokens': 512,
+            'responseMimeType': 'application/json',
+        }
+    }).encode()
+    req = urllib.request.Request(endpoint, data=payload,
+                                  headers={'Content-Type': 'application/json'})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = json.loads(resp.read())
+            # 解析 Gemini response 結構
+            candidates = body.get('candidates') or []
+            if not candidates:
+                print(f'  Gemini: no candidates in response', file=sys.stderr)
+                return None
+            parts = candidates[0].get('content', {}).get('parts') or []
+            if not parts:
+                print(f'  Gemini: no parts in candidate', file=sys.stderr)
+                return None
+            text = parts[0].get('text', '').strip()
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                m = re.search(r'\{[^{}]*\}', text, re.DOTALL)
+                if m:
+                    return json.loads(m.group())
+                print(f'  Gemini: unparseable JSON: {text[:100]}', file=sys.stderr)
+    except urllib.error.HTTPError as e:
+        body = ''
+        try: body = e.read().decode('utf-8', errors='ignore')[:200]
+        except: pass
+        print(f'  Gemini HTTP {e.code}: {body}', file=sys.stderr)
+    except Exception as e:
+        print(f'  Gemini error: {e}', file=sys.stderr)
+    return None
+
+
+def ollama_extract(title, description, page_text):
+    \"\"\"Fallback：Ollama qwen2.5:3b。Gemini 不可用 / 被限流時用。\"\"\"
+    prompt = _build_extract_prompt(title, description, page_text)
+    payload = json.dumps({
+        'model': OLLAMA_MODEL,
         'prompt': prompt,
         'stream': False,
         'format': 'json',
         'options': {'temperature': 0.1, 'num_predict': 300}
     }).encode()
-
     req = urllib.request.Request(OLLAMA_URL, data=payload,
                                   headers={'Content-Type': 'application/json'})
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             result = json.loads(resp.read())
             text = result.get('response', '')
-            # With format: json, Ollama should return valid JSON directly
             try:
                 return json.loads(text)
             except json.JSONDecodeError:
-                # Fallback: extract JSON from response text
                 match = re.search(r'\{[^{}]*\}', text)
                 if match:
                     return json.loads(match.group())
     except Exception as e:
         print(f'  Ollama error: {e}', file=sys.stderr)
     return None
+
+
+def extract_place_info(title, description, page_text):
+    \"\"\"主入口：Gemini 2.5 Flash first，失敗 fallback Ollama qwen2.5:3b。\"\"\"
+    # 先 Gemini
+    result = gemini_extract(title, description, page_text)
+    if result:
+        print(f'  [extracted by gemini]')
+        return result
+    # Fallback Ollama
+    print(f'  [gemini failed, fallback ollama]')
+    result = ollama_extract(title, description, page_text)
+    if result:
+        print(f'  [extracted by ollama]')
+    return result
 
 def check_duplicate(bookmark_id, title, city):
     \"\"\"Check if another bookmark has the same title + city. Returns duplicate ID or None.\"\"\"
@@ -344,7 +440,7 @@ for bm in bookmarks:
     if page_text:
         print(f'  Fetched {len(page_text)} chars from page')
 
-    result = ollama_extract(title, desc, page_text)
+    result = extract_place_info(title, desc, page_text)
     if not result:
         # Mark as processed with low confidence so it retries next time (up to 3 attempts)
         if old_confidence is None:
