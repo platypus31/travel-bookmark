@@ -422,6 +422,21 @@ for bm in bookmarks:
                 add_tag(dup['id'], '疑似重複')
     else:
         print(f'  Failed to update')
+        # 2026-04-24 修無限迴圈：主 PATCH 失敗時，去掉可疑欄位（image_url、超長 title）降級重試一次
+        # 若降級仍失敗，硬塞 confidence=0.55 防 query or=(enriched.is.null,confidence.lt.0.5) 再撿
+        # 根因：某些 IG CDN image_url 過長或含特殊字元觸發 Supabase PATCH 400，舊版無迴圈防護導致單筆跑 ~40 次
+        safe_updates = {k: v for k, v in updates.items() if k != 'image_url'}
+        if 'title' in safe_updates and isinstance(safe_updates['title'], str) and len(safe_updates['title']) > 40:
+            safe_updates.pop('title')
+        if safe_updates and update_bookmark(bid, safe_updates):
+            print(f'  Retried without image_url/long-title: OK')
+            enriched += 1
+        else:
+            # 最終降級：只寫 confidence + enriched_at 阻止無限重試
+            if update_bookmark(bid, {'confidence': 0.55}):
+                print(f'  Retry failed, marked confidence=0.55 to stop re-queue')
+            else:
+                print(f'  All retries failed for {bid}, will be picked next tick')
 
 print(f'Done: {enriched}/{len(bookmarks)} enriched')
 "
