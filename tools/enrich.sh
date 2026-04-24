@@ -246,14 +246,20 @@ def gemini_extract(title, description, page_text):
             try:
                 return json.loads(text)
             except json.JSONDecodeError:
-                m = re.search(r'\{[^{}]*\}', text, re.DOTALL)
-                if m:
-                    return json.loads(m.group())
+                # 2026-04-24 修 codex-review P1：原 regex r'\{[^{}]*\}' 不支援 nested JSON
+                # 改成「第一個 { 到最後一個 }」的 slice，處理 nested + pretty-printed
+                s = text.find('{'); e = text.rfind('}')
+                if s != -1 and e > s:
+                    try:
+                        return json.loads(text[s:e+1])
+                    except json.JSONDecodeError:
+                        pass
                 print(f'  Gemini: unparseable JSON: {text[:100]}', file=sys.stderr)
     except urllib.error.HTTPError as e:
         body = ''
+        # 2026-04-24 修 codex-review P1：bare except 會吞 KeyboardInterrupt/SystemExit，改 Exception
         try: body = e.read().decode('utf-8', errors='ignore')[:200]
-        except: pass
+        except Exception: pass
         print(f'  Gemini HTTP {e.code}: {body}', file=sys.stderr)
     except Exception as e:
         print(f'  Gemini error: {e}', file=sys.stderr)
@@ -279,9 +285,13 @@ def ollama_extract(title, description, page_text):
             try:
                 return json.loads(text)
             except json.JSONDecodeError:
-                match = re.search(r'\{[^{}]*\}', text)
-                if match:
-                    return json.loads(match.group())
+                # 同 gemini_extract：改 slice 處理 nested JSON（P1 fix）
+                s = text.find('{'); e = text.rfind('}')
+                if s != -1 and e > s:
+                    try:
+                        return json.loads(text[s:e+1])
+                    except json.JSONDecodeError:
+                        pass
     except Exception as e:
         print(f'  Ollama error: {e}', file=sys.stderr)
     return None
@@ -289,16 +299,19 @@ def ollama_extract(title, description, page_text):
 
 def extract_place_info(title, description, page_text):
     \"\"\"主入口：Gemini 2.5 Flash first，失敗 fallback Ollama qwen2.5:3b。\"\"\"
-    # 先 Gemini
-    result = gemini_extract(title, description, page_text)
-    if result:
-        print(f'  [extracted by gemini]')
-        return result
+    # 2026-04-24 修 codex-review P2：key 未設時明確 log「skipped」不說「failed」
+    if not GEMINI_API_KEY:
+        print('  [gemini skipped (no API key), using ollama]')
+    else:
+        result = gemini_extract(title, description, page_text)
+        if result:
+            print('  [extracted by gemini]')
+            return result
+        print('  [gemini failed, fallback ollama]')
     # Fallback Ollama
-    print(f'  [gemini failed, fallback ollama]')
     result = ollama_extract(title, description, page_text)
     if result:
-        print(f'  [extracted by ollama]')
+        print('  [extracted by ollama]')
     return result
 
 def check_duplicate(bookmark_id, title, city):
