@@ -5,11 +5,26 @@
 
 set -euo pipefail
 
-SUPABASE_URL="https://YOUR_SUPABASE_PROJECT_ID.supabase.co"
-SUPABASE_KEY="YOUR_SUPABASE_ANON_KEY"
+# 2026-04-24 修：從 .env.local 讀真實 credentials（原 placeholder 是 history wash 殘留）
+# 根因：history wash 通用化但 runtime 沒 fallback，沉默失敗連續 5+ 天 enrich 不跑
+# 同 lesson 2026-04-23「placeholder 必配合 runtime env fallback」
+ENV_FILE="/Users/xiaoque/travel-bookmark/.env.local"
+if [ -f "$ENV_FILE" ]; then
+  SUPABASE_URL=$(grep '^NEXT_PUBLIC_SUPABASE_URL=' "$ENV_FILE" | cut -d= -f2- | tr -d '"' | head -1)
+  SUPABASE_KEY=$(grep '^NEXT_PUBLIC_SUPABASE_ANON_KEY=' "$ENV_FILE" | cut -d= -f2- | tr -d '"' | head -1)
+else
+  SUPABASE_URL="${NEXT_PUBLIC_SUPABASE_URL:-https://YOUR_SUPABASE_PROJECT_ID.supabase.co}"
+  SUPABASE_KEY="${NEXT_PUBLIC_SUPABASE_ANON_KEY:-YOUR_SUPABASE_ANON_KEY}"
+fi
 OLLAMA_URL="http://localhost:11434/api/generate"
 MODEL="qwen2.5:3b"
 LOG="/Users/xiaoque/travel-bookmark/logs/enrich.log"
+
+# Pre-flight: 拒絕在 placeholder 狀態啟動
+if [[ "$SUPABASE_URL" == *"YOUR_SUPABASE"* ]] || [[ "$SUPABASE_KEY" == *"YOUR_SUPABASE"* ]]; then
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Supabase credentials 仍為 placeholder，請檢查 $ENV_FILE" >> "$LOG"
+  exit 2
+fi
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG"; }
 
