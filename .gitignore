@@ -42,3 +42,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local ops notes & build (2026-07-29 首案)
+HANDOFF.md
+/.next/
