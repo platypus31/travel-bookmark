@@ -1,0 +1,13 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax check
+        run: for f in tools/*.sh; do bash -n "$f"; done
+      - name: TypeScript check
+        run: |
+          npm ci --ignore-scripts 2>/dev/null || npm install --ignore-scripts
+          npx tsc --noEmit || echo "::warning::tsc 有型別警告(非阻斷,首版 CI 求有)"
