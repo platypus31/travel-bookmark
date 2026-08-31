@@ -65,6 +65,15 @@ LINE 群組傳連結 → Vercel webhook（即時存入 Supabase + 抓 og:image�
 - [x] Ollama enrich v2（完整頁面抓取 + structured JSON + confidence）
 - [x] 小紅書支援（短連結展開 + `__INITIAL_STATE__` 解析）
 - [x] Google Maps 分享連結收錄（短網址展開 + 從 URL 解出店名/座標，`src/lib/gmaps.ts`）
+      **為什麼不接 Google Places API**（2026-08-31 判斷，之後想加請先讀這段）：
+      不需要。要的東西網址本身就給了 —— `/maps/place/店名/@緯度,經度`，
+      短網址一次 302 就展開。實測 Maps 頁面 `og:title` 恆為 "Google Maps"、
+      `og:description` 恆為 "Find local businesses..."、地址是 JS 才渲染，
+      所以「抓網頁 meta」對 Maps 完全無效，這也是為何 Maps 不走 `fetchOgMeta`。
+      接 Places API 要金鑰、要綁信用卡、有配額、多一個外部故障點，
+      為了已經拿得到的東西付費不划算。
+      **代價（誠實記錄）**：拿不到門牌地址與營業資訊，縣市/行政區交給後段 LLM 從店名推斷；
+      若哪天真的需要「地址、電話、營業時間、評分」，那才是接 Places API 的時機。
       🔴 **需要使用者跑一次 SQL 才會生效** → `supabase/migrations/2026-08-31-add-googlemaps-platform.sql`
       （線上 DB 的 `bookmarks_platform_check` 沒放行 `googlemaps`，實測插入回 400/23514）
 - [x] 防幻覺（低信心不更新 title、prompt 明確禁止猜測）
