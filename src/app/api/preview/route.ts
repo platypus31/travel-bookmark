@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  isGoogleMapsUrl,
+  resolveGoogleMapsUrl,
+  parseGoogleMapsUrl,
+  googleMapsPlaceText,
+} from "@/lib/gmaps";
 
 interface PreviewData {
   title: string | null;
   description: string | null;
   image: string | null;
+  /** Google Maps 專用：展開／清乾淨後的網址，前端會用它取代使用者貼的短網址 */
+  resolvedUrl?: string;
 }
 
 function extractMeta(html: string, property: string): string | null {
@@ -39,6 +47,20 @@ export async function POST(request: NextRequest) {
       new URL(url);
     } catch {
       return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
+    }
+
+    // Google Maps 的 og meta 是固定樣板（title 恆為 "Google Maps"），
+    // 抓網頁沒有意義 — 名稱與座標都在網址裡，短網址展開一次就有。
+    if (isGoogleMapsUrl(url)) {
+      const resolved = await resolveGoogleMapsUrl(url);
+      const place = parseGoogleMapsUrl(resolved);
+      const mapsPreview: PreviewData = {
+        title: place.placeName,
+        description: googleMapsPlaceText(place),
+        image: null,
+        resolvedUrl: place.canonicalUrl,
+      };
+      return NextResponse.json(mapsPreview);
     }
 
     const controller = new AbortController();

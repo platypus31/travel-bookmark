@@ -1,4 +1,4 @@
-export type Platform = "instagram" | "xiaohongshu" | "youtube" | "tiktok" | "other";
+export type Platform = "instagram" | "xiaohongshu" | "youtube" | "tiktok" | "googlemaps" | "other";
 export type PlaceType = "restaurant" | "cafe" | "attraction" | "bar" | "hotel" | "bakery" | "dessert" | "nightmarket" | "other";
 
 export interface Bookmark {
@@ -71,5 +71,6 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
   xiaohongshu: "小紅書",
   youtube: "YouTube",
   tiktok: "TikTok",
+  googlemaps: "Google Maps",
   other: "其他",
 };

@@ -2,7 +2,7 @@
 
 > 在 LINE 群組丟美食/景點連結，AI 自動幫你整理店名、地區、分類，網頁一鍵瀏覽。
 
-跟家人朋友開一個 LINE 群組，平常看到好吃的餐廳就丟 IG / 小紅書的連結進去，機器人會自動：
+跟家人朋友開一個 LINE 群組，平常看到好吃的餐廳就丟 IG / 小紅書 / Google Maps 的連結進去，機器人會自動：
 
 ✅ 存進雲端資料庫（永不遺失）
 ✅ 用 AI 讀懂內容，自動填好店名、縣市、分類（🍽️ 餐廳 / ☕ 咖啡廳 / 🏞️ 景點 / 🍺 酒吧 / ...）
@@ -144,7 +144,7 @@ https://www.instagram.com/p/xxxxx/
 ## 🗺️ 怎麼運作的（架構圖）
 
 ```
-   你在 LINE 丟連結（IG / 小紅書 / TikTok / YouTube）
+   你在 LINE 丟連結（IG / 小紅書 / TikTok / YouTube / Google Maps）
               ↓
         LINE Bot 收到
               ↓
@@ -159,6 +159,31 @@ https://www.instagram.com/p/xxxxx/
 ```
 
 **三個免費服務 + 一台 Mac**，全部不用付錢。
+
+### 🗺️ Google Maps 連結怎麼處理的
+
+在 Google Maps App 按「分享」會得到一個 `https://maps.app.goo.gl/XXXX` 短網址，直接貼給機器人就好：
+
+1. 短網址會被展開成完整網址（一次 redirect，不用開瀏覽器）
+2. **店名和經緯度本來就寫在網址裡** —— `/maps/place/店名/@緯度,經度`，直接解出來當標題
+3. 網址上的一次性追蹤參數（`entry` / `g_ep` / `skid`）會被清掉，同一個分享連結重複貼就會被 `unique(group_id, url)` 擋下
+
+> 註：**兩次「分開分享」同一家店不會被網址去重擋住** —— Google 產的網址帶當下的地圖視窗
+> （`/@緯度,經度,縮放`），每次都不一樣。這種情況靠既有的「疑似重複」偵測（比對店名+縣市）標記出來。
+
+支援的寫法：`maps.app.goo.gl/…` 短網址、`goo.gl/maps/…` 舊短網址、桌面版 `google.com/maps/place/…`、
+`google.com/maps/search/…`、`maps.google.com/?q=…`（名稱或座標都可以）。
+
+> ⚠️ **既有安裝要先跑一次 SQL 才會生效**：`bookmarks.platform` 有一個 CHECK constraint，
+> 沒放行 `googlemaps` 之前，Google Maps 連結會存不進去（400）。
+> 到 Supabase Dashboard → SQL Editor 貼上並執行
+> [`supabase/migrations/2026-08-31-add-googlemaps-platform.sql`](supabase/migrations/2026-08-31-add-googlemaps-platform.sql)。
+> 全新安裝跑 `supabase-schema.sql` 的人不用管這步。
+
+> **為什麼不接 Google Places API**：不需要。實測 Google Maps 頁面的 `og:title` 永遠是 "Google Maps"、
+> 地址是 JS 才渲染的，抓網頁 meta 沒有意義；而我們要的店名與座標，網址本身就給了。
+> 接 Places API 要金鑰、要綁信用卡、有配額，為了已經拿得到的東西付費不划算。
+> **代價**：拿不到「門牌地址」，縣市/行政區交給後面的 AI 辨識步驟從店名推斷。
 
 ---
 
@@ -298,7 +323,7 @@ bookmarks
 ├── group_id      FK → groups
 ├── created_by    FK → profiles
 ├── url           原始連結（group_id + url unique）
-├── platform      instagram | xiaohongshu | youtube | tiktok | other
+├── platform      instagram | xiaohongshu | youtube | tiktok | googlemaps | other
 ├── title         店名（Ollama 提取）
 ├── description   原始描述
 ├── image_url     封面圖

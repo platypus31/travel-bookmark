@@ -27,7 +27,12 @@ create table if not exists bookmarks (
   group_id uuid references groups(id),
   created_by uuid references profiles(id),
   url text not null,
-  platform text,
+  -- 2026-08-31：線上 DB 一直有這個 CHECK 但以前沒寫進本檔（schema drift），
+  -- 補寫出來並加入 googlemaps。既有安裝請改跑
+  -- supabase/migrations/2026-08-31-add-googlemaps-platform.sql
+  platform text check (platform in (
+    'instagram', 'xiaohongshu', 'youtube', 'tiktok', 'googlemaps', 'other'
+  )),
   title text,
   description text,
   image_url text,

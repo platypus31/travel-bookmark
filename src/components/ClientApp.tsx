@@ -262,9 +262,13 @@ export default function ClientApp({ initialBookmarks, groupName }: Props) {
                         rel="noopener noreferrer"
                         className="text-primary text-sm font-medium"
                       >
-                        查看原始貼文 →
+                        {bookmark.platform === "googlemaps"
+                          ? "🗺️ 在 Google Maps 開啟 →"
+                          : "查看原始貼文 →"}
                       </a>
-                      {(bookmark.title || bookmark.city) && (
+                      {/* 本身就是地圖連結時不用再給一個搜尋連結 */}
+                      {bookmark.platform !== "googlemaps" &&
+                        (bookmark.title || bookmark.city) && (
                         <a
                           href={`https://www.google.com/maps/search/${encodeURIComponent([bookmark.title, bookmark.city, bookmark.district].filter(Boolean).join(" "))}`}
                           target="_blank"

@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { detectPlatform, platformEmoji, placeTypeEmoji } from "@/lib/utils";
+import { PLATFORM_LABELS } from "@/lib/types";
+import {
+  resolveGoogleMapsUrl,
+  parseGoogleMapsUrl,
+  googleMapsPlaceText,
+} from "@/lib/gmaps";
 
 const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET || "";
 const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN || "";
@@ -158,8 +164,27 @@ async function handleUrl(url: string, extraText: string, replyToken: string) {
   let city = extractCity(cleanText);
   let placeType = guessPlaceType(cleanText);
 
-  // 2. Fetch OG meta for more info
-  const og = await fetchOgMeta(url);
+  // 2. 取得標題／描述
+  // Google Maps 走 URL 解析：實測其 og:title 恆為 "Google Maps"、
+  // og:description 恆為 "Find local businesses..."，抓 meta 只會存進垃圾標題。
+  // 地點名稱與座標都在展開後的網址裡，不需要 Places API。
+  let storedUrl = url;
+  let og: Awaited<ReturnType<typeof fetchOgMeta>>;
+
+  if (platform === "googlemaps") {
+    const resolved = await resolveGoogleMapsUrl(url);
+    const place = parseGoogleMapsUrl(resolved);
+    storedUrl = place.canonicalUrl;
+    og = {
+      title: place.placeName,
+      description: googleMapsPlaceText(place),
+      placeName: place.placeName,
+      imageUrl: null,
+    };
+  } else {
+    og = await fetchOgMeta(url);
+  }
+
   const ogCombined = [og.title, og.description].filter(Boolean).join(" ");
 
   // 3. Determine title: user text > extracted place name > OG title
@@ -168,9 +193,13 @@ async function handleUrl(url: string, extraText: string, replyToken: string) {
     title = og.placeName;
   }
   // Store full OG caption as description (even if we extracted a place name from it)
-  const description = og.title && og.title !== title
-    ? og.title + (og.description ? `\n${og.description}` : '')
-    : og.description || null;
+  // Google Maps 例外：og.description（googleMapsPlaceText）本身已含「地點名稱：X」，
+  // 使用者若另附文字會讓 title !== og.title，前綴 og.title 會使店名重複兩次。
+  const description = platform === "googlemaps"
+    ? og.description || null
+    : og.title && og.title !== title
+      ? og.title + (og.description ? `\n${og.description}` : '')
+      : og.description || null;
 
   // Try to extract city/placeType from OG meta if not found in user text
   if (!city) {
@@ -184,7 +213,7 @@ async function handleUrl(url: string, extraText: string, replyToken: string) {
   const { data, error } = await supabase.rpc("insert_bookmark_from_bot", {
     p_group_id: DEFAULT_GROUP_ID,
     p_created_by: DEFAULT_USER_ID,
-    p_url: url,
+    p_url: storedUrl,
     p_platform: platform,
     p_title: title || og.title || null,
     p_description: description,
@@ -194,8 +223,16 @@ async function handleUrl(url: string, extraText: string, replyToken: string) {
   });
 
   if (error) {
+    // 線上 DB 的 bookmarks_platform_check 若還沒放行新平台，錯誤訊息很難懂，
+    // 直接告訴使用者要跑哪個 migration，不要讓他對著 constraint 名稱猜。
+    const needsMigration = error.message?.includes("bookmarks_platform_check");
     await replyMessage(replyToken, [
-      { type: "text", text: `❌ 儲存失敗：${error.message}` },
+      {
+        type: "text",
+        text: needsMigration
+          ? `❌ 資料庫還沒開放「${PLATFORM_LABELS[platform] || platform}」這個來源。\n請到 Supabase SQL Editor 跑一次：\nsupabase/migrations/2026-08-31-add-googlemaps-platform.sql`
+          : `❌ 儲存失敗：${error.message}`,
+      },
     ]);
     return;
   }
@@ -325,7 +362,7 @@ export async function POST(req: NextRequest) {
         await replyMessage(replyToken, [
           {
             type: "text",
-            text: `📍 Travel Bookmark 使用說明\n\n🔗 傳連結 → 自動收藏\n支援 IG / 小紅書 / YouTube / TikTok\n\n🔍 輸入縣市名 → 查看該地區收藏\n例：「台南」「花蓮」\n\n🔎 輸入關鍵字 → 搜尋收藏\n例：「燒烤」「咖啡」\n\n📊 輸入「統計」→ 查看收藏統計`,
+            text: `📍 Travel Bookmark 使用說明\n\n🔗 傳連結 → 自動收藏\n支援 IG / 小紅書 / YouTube / TikTok / Google Maps\n\n🗺️ Google Maps 直接用 App 的「分享」貼過來就好\n（maps.app.goo.gl 短網址會自動展開成店名）\n\n🔍 輸入縣市名 → 查看該地區收藏\n例：「台南」「花蓮」\n\n🔎 輸入關鍵字 → 搜尋收藏\n例：「燒烤」「咖啡」\n\n📊 輸入「統計」→ 查看收藏統計`,
           },
         ]);
       } else if (/^(統計|stats)$/i.test(text)) {

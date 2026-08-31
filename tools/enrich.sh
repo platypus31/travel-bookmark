@@ -55,7 +55,7 @@ log "Found $COUNT bookmarks to enrich"
 
 # Process each bookmark
 echo "$BOOKMARKS" | python3 -c "
-import json, sys, urllib.request, urllib.parse, re, html
+import json, sys, urllib.request, urllib.parse, urllib.error, re, html
 
 SUPABASE_URL = '${SUPABASE_URL}'
 SUPABASE_KEY = '${SUPABASE_KEY}'
@@ -64,8 +64,120 @@ OLLAMA_MODEL = '${OLLAMA_MODEL}'
 GEMINI_API_KEY = '${GEMINI_API_KEY}'
 GEMINI_MODEL = '${GEMINI_MODEL}'
 
+GMAPS_SHORT_HOSTS = ('maps.app.goo.gl', 'goo.gl')
+
+def _host(url):
+    try:
+        return (urllib.parse.urlparse(url).hostname or '').lower()
+    except Exception:
+        return ''
+
+def is_gmaps_url(url):
+    \"\"\"Google Maps 連結（含短網址）。只認 google.<tld> 結尾，擋 maps.google.evil.com。\"\"\"
+    host = _host(url)
+    if not host:
+        return False
+    if host == 'maps.app.goo.gl':
+        return True
+    path = urllib.parse.urlparse(url).path or ''
+    if host == 'goo.gl':
+        return path.startswith('/maps')
+    if re.match(r'^(?:[a-z0-9-]+\.)*google\.(?:com|[a-z]{2}|com\.[a-z]{2}|co\.[a-z]{2})\$', host):
+        has_q = 'q' in urllib.parse.parse_qs(urllib.parse.urlparse(url).query or '')
+        return path.startswith('/maps') or (host.startswith('maps.') and has_q)
+    return False
+
+def parse_gmaps(url):
+    \"\"\"從 Google Maps 網址解出地點名稱 + 座標。
+
+    實測 2026-08-31：Maps 頁面的 og:title 恆為 'Google Maps'、og:description 恆為
+    'Find local businesses...'，地址是 JS 渲染的 → 抓 meta 完全沒用。
+    唯一可靠來源是網址本身，所以這裡不連網也不需要 Places API。
+    \"\"\"
+    name, lat, lng = None, None, None
+    parsed = urllib.parse.urlparse(url)
+    segs = [s for s in (parsed.path or '').split('/') if s]
+    for anchor in ('place', 'search'):
+        if anchor in segs:
+            i = segs.index(anchor)
+            if i + 1 < len(segs):
+                cand = urllib.parse.unquote_plus(segs[i + 1]).strip()
+                # 排除座標（十進位 + 度分秒），那是「丟針」不是店名
+                is_coord = re.match(r'^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?\$', cand) or \
+                    re.search(r'\d+\s*°\s*\d+[\'′]\s*[\d.]+\s*[\"″]?\s*[NSEW]', cand, re.I)
+                if cand and not cand.startswith('@') and not is_coord:
+                    name = cand
+            break
+    if not name:
+        qs = urllib.parse.parse_qs(parsed.query or '')
+        q = (qs.get('q') or qs.get('query') or [None])[0]
+        if q:
+            qc = re.match(r'^(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)\$', q.strip())
+            if qc:
+                lat, lng = qc.group(1), qc.group(2)
+            else:
+                name = q.strip()
+    decoded = urllib.parse.unquote(url)
+    m = re.search(r'!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)', decoded) or \
+        re.search(r'@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)', decoded)
+    # 已從 q= 解出精確座標時不要被 @（視窗中心，較不準）覆蓋 —— 與 gmaps.ts 的 guard 一致
+    if m and (lat is None or lng is None):
+        lat, lng = m.group(1), m.group(2)
+    return name, lat, lng
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    \"\"\"讓 urlopen 不要自動跟隨 redirect，改由我們逐跳檢查目的地。\"\"\"
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+def is_gmaps_short_url(url):
+    \"\"\"maps.app.goo.gl 全部算；goo.gl 是通用短網址，只有 /maps 開頭才算地圖。\"\"\"
+    host = _host(url)
+    if host == 'maps.app.goo.gl':
+        return True
+    if host == 'goo.gl':
+        return (urllib.parse.urlparse(url).path or '').startswith('/maps')
+    return False
+
+def resolve_gmaps_short_url(url, max_hops=3):
+    \"\"\"展開 Google Maps 短網址，逐跳驗證下一站仍是 Google Maps。
+
+    為什麼不直接用 urlopen 跟隨 redirect：goo.gl 是通用短網址，
+    任何人都能做一個指向 127.0.0.1 / 169.254.169.254 的短網址丟進 LINE 群，
+    排程就會替他對內網發請求（SSRF）。所以這裡跟 src/lib/gmaps.ts 一樣，
+    每一跳都要確認目的地還是 Google Maps，不是就停手回原網址。
+    \"\"\"
+    current = url
+    opener = urllib.request.build_opener(_NoRedirect)
+    for _ in range(max_hops):
+        if not is_gmaps_short_url(current):
+            return current
+        try:
+            req = urllib.request.Request(current, headers={
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1'
+            })
+            with opener.open(req, timeout=10) as resp:
+                return current  # 沒有 redirect，就是終點
+        except urllib.error.HTTPError as e:
+            if e.code not in (301, 302, 303, 307, 308):
+                return current
+            loc = e.headers.get('Location')
+            if not loc:
+                return current
+            nxt = urllib.parse.urljoin(current, loc)
+            if not is_gmaps_url(nxt):
+                return current  # 導去非 Google Maps 的地方，不跟
+            print(f'  Resolved short URL -> {nxt[:80]}')
+            current = nxt
+        except Exception as e:
+            print(f'  Short URL resolve error: {e}', file=sys.stderr)
+            return current
+    return current
+
 def resolve_short_url(url):
-    \"\"\"Resolve short URLs (xhslink.com etc.) to their final destination.\"\"\"
+    \"\"\"Resolve short URLs (xhslink.com / maps.app.goo.gl etc.) to their final destination.\"\"\"
+    if is_gmaps_short_url(url):
+        return resolve_gmaps_short_url(url)
     if 'xhslink.com' not in url:
         return url
     try:
@@ -109,6 +221,20 @@ def fetch_page_text(url):
     try:
         # Resolve short URLs first
         url = resolve_short_url(url)
+
+        # Google Maps：不抓網頁（og meta 是固定樣板，抓了只會餵垃圾給 LLM），
+        # 直接把網址裡的地點名稱 + 座標當成來源文字。
+        if is_gmaps_url(url):
+            name, lat, lng = parse_gmaps(url)
+            parts = []
+            if name:
+                parts.append(f'地點名稱：{name}')
+            if lat and lng:
+                parts.append(f'座標：{lat},{lng}')
+            if parts:
+                print(f'  Google Maps place from URL: {name}')
+                return '\n'.join(parts)
+            return None
 
         req = urllib.request.Request(url, headers={
             'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',

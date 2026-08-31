@@ -1,6 +1,6 @@
 # Travel Bookmark — 交班清單
 
-上次更新：2026-04-23（repo 轉 public，個資 wash，.env 改用 secret Gist 備份）
+上次更新：2026-08-31（新增 Google Maps 分享連結收錄）
 
 ## 專案狀態：完整運行中
 
@@ -64,6 +64,9 @@ LINE 群組傳連結 → Vercel webhook（即時存入 Supabase + 抓 og:image�
 - [x] LINE Bot webhook（Vercel serverless）
 - [x] Ollama enrich v2（完整頁面抓取 + structured JSON + confidence）
 - [x] 小紅書支援（短連結展開 + `__INITIAL_STATE__` 解析）
+- [x] Google Maps 分享連結收錄（短網址展開 + 從 URL 解出店名/座標，`src/lib/gmaps.ts`）
+      🔴 **需要使用者跑一次 SQL 才會生效** → `supabase/migrations/2026-08-31-add-googlemaps-platform.sql`
+      （線上 DB 的 `bookmarks_platform_check` 沒放行 `googlemaps`，實測插入回 400/23514）
 - [x] 防幻覺（低信心不更新 title、prompt 明確禁止猜測）
 - [x] 書籤分類：餐廳/咖啡廳/景點/酒吧/住宿/烘焙/甜點/夜市
 - [x] 網頁篩選（縣市→區域→類型→搜尋）
@@ -88,6 +91,9 @@ LINE 群組傳連結 → Vercel webhook（即時存入 Supabase + 抓 og:image�
 2. **IG 封面圖 CDN URL 過期（403）** — 已移除前端圖片顯示，Supabase Storage bucket 已建好，未來可存永久圖片
 3. **小紅書封面圖抓不到** — 頁面 JS 渲染，og:image 為空
 4. **git config** — repo 已設 `user.email=platypusbot@users.noreply.github.com`、`user.name=platypus31`，不要改
+5. **schema drift（2026-08-31 發現）** — 線上 DB 有 `bookmarks_platform_check` 這個 CHECK constraint，
+   但 `supabase-schema.sql` 裡從來沒有。已補寫進 schema 檔。
+   **教訓：以後加新的 platform / place_type 值，光改 TypeScript union 不夠，要一起改 DB constraint。**
 
 ## 待優化（優先順序）
 
@@ -105,8 +111,11 @@ LINE 群組傳連結 → Vercel webhook（即時存入 Supabase + 抓 og:image�
 
 ### P3 — 長期
 - [ ] **IG Graph API** — 抓留言（置頂留言有店家資訊），需 Facebook App 審核
-- [ ] **更多平台** — Google Maps 連結、Facebook、部落格
+- [ ] **更多平台** — Facebook、部落格（Google Maps 已於 2026-08-31 完成）
 - [ ] **地圖檢視** — 書籤顯示在地圖上（需經緯度）
+      ⚠️ Google Maps 連結「解得出」經緯度但**目前沒有存進 DB**：
+      `bookmarks` 表沒有 lat/lng 欄位，加欄位要動線上 DB（migration），本次刻意不做。
+      座標目前保留在收藏的網址裡（`/@lat,lng`），要做地圖檢視時再一起加欄位 + 回填。
 
 ## 關鍵檔案
 
@@ -119,6 +128,7 @@ LINE 群組傳連結 → Vercel webhook（即時存入 Supabase + 抓 og:image�
 | 一鍵安裝 | `bootstrap.sh` |
 | 型別 + 縣市區域資料 | `src/lib/types.ts` |
 | 平台偵測 + emoji | `src/lib/utils.ts` |
+| Google Maps 網址解析 | `src/lib/gmaps.ts` |
 | DB schema | README.md「資料庫結構」段落 |
 
 ## 部署指令

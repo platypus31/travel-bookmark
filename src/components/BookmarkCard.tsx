@@ -93,7 +93,9 @@ export default function BookmarkCard({ bookmark, onToggleVisited, onDelete }: Pr
           rel="noopener noreferrer"
           className="block text-primary text-sm font-medium mt-1"
         >
-          查看原始貼文 →
+          {bookmark.platform === "googlemaps"
+            ? "🗺️ 在 Google Maps 開啟 →"
+            : "查看原始貼文 →"}
         </a>
 
         {/* Action Menu */}

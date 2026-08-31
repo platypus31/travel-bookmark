@@ -43,6 +43,8 @@ export default function AddBookmark({ groupId, userId, onAdded, onClose }: Props
       if (data.title && !title) setTitle(data.title);
       if (data.description && !description) setDescription(data.description);
       if (data.image) setImageUrl(data.image);
+      // Google Maps 短網址 → 換成展開後的網址，同一家店才不會因短網址不同而重複收藏
+      if (data.resolvedUrl) setUrl(data.resolvedUrl);
     } catch {
       // Silently fail — user can still fill manually
     }
@@ -69,15 +71,37 @@ export default function AddBookmark({ groupId, userId, onAdded, onClose }: Props
     if (!url.trim()) return;
 
     setLoading(true);
-    const platform = detectPlatform(url);
+    let finalUrl = url.trim();
+    let finalTitle = title.trim();
+    let finalDescription = description.trim();
+    const platform = detectPlatform(finalUrl);
+
+    // 保險：使用者可能貼完直接送出（沒觸發 blur/paste 的 preview），或 preview 靜默失敗。
+    // Google Maps 短網址若沒展開就存進去，去重和店名都會失效 → 送出前再確保展開一次。
+    if (platform === "googlemaps") {
+      try {
+        const res = await fetch("/api/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: finalUrl }),
+        });
+        const data = await res.json();
+        if (data.resolvedUrl) finalUrl = data.resolvedUrl;
+        // 第一次 preview 沒跑到（或失敗）時，店名也要一起補，否則會存成無名書籤
+        if (data.title && !finalTitle) finalTitle = data.title;
+        if (data.description && !finalDescription) finalDescription = data.description;
+      } catch {
+        // 展開失敗就照原網址存，至少不會擋住使用者收藏
+      }
+    }
 
     const { error } = await supabase.from("bookmarks").insert({
       group_id: groupId,
       created_by: userId,
-      url: url.trim(),
+      url: finalUrl,
       platform,
-      title: title.trim() || null,
-      description: description.trim() || null,
+      title: finalTitle || null,
+      description: finalDescription || null,
       image_url: imageUrl.trim() || null,
       city: city || null,
       district: district || null,
@@ -114,7 +138,7 @@ export default function AddBookmark({ groupId, userId, onAdded, onClose }: Props
             <label className="block text-sm font-medium mb-1">貼上連結 *</label>
             <input
               type="url"
-              placeholder="https://www.instagram.com/p/..."
+              placeholder="IG / 小紅書 / Google Maps 連結都可以"
               value={url}
               onChange={(e) => handleUrlChange(e.target.value)}
               onBlur={handleUrlBlur}

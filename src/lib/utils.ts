@@ -1,6 +1,9 @@
 import { Platform } from "./types";
+import { isGoogleMapsUrl } from "./gmaps";
 
 export function detectPlatform(url: string): Platform {
+  // Google Maps 先判：分享連結有多種形態，交給 gmaps.ts 做嚴格 host 比對
+  if (isGoogleMapsUrl(url)) return "googlemaps";
   if (url.includes("instagram.com") || url.includes("instagr.am")) return "instagram";
   if (url.includes("xiaohongshu.com") || url.includes("xhslink.com")) return "xiaohongshu";
   if (url.includes("youtube.com") || url.includes("youtu.be")) return "youtube";
@@ -14,6 +17,7 @@ export function platformEmoji(platform: Platform): string {
     case "xiaohongshu": return "📕";
     case "youtube": return "▶️";
     case "tiktok": return "🎵";
+    case "googlemaps": return "🗺️";
     default: return "🔗";
   }
 }
