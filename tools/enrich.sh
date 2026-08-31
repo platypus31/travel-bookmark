@@ -85,14 +85,21 @@ else
   # 清孤兒鎖用 mv 不用 rm：mv 只有一個行程會成功，第二個拿到 ENOENT 就知道別人先處理了。
   # 直接 rm -rf 再 mkdir 的話，兩個行程同時判定孤兒時，B 的 rm 會把 A 剛建好的鎖砍掉，
   # 結果兩邊都以為自己拿到鎖 —— 正是這段機制要防的重疊（codex review R2 P2）。
+  # 🔴 這一整段不准出現「對可能是活鎖的目錄做 rm」。
+  # BSD/GNU 的 mv 搬到「已存在的目錄」是**巢狀塞進去**而且回傳 0（實測 2026-08-31），
+  # 所以不能用 mv 的退出碼判斷「還原成功了沒」，一律改用 `[ -e ]` 做結構判斷。
   STALE_DIR="${LOCK_DIR}.stale.$$"
+  # pid 有機會回捲重複使用，同名 stale 殘骸會讓下面的 mv 變成巢狀搬入、
+  # 讀到的是殘骸的 pid 而不是剛搬進去那個 → 先把同名的清掉（那必定是自己上輩子的垃圾）。
+  rm -rf "$STALE_DIR"
   if ! MV_ERR=$(mv "$LOCK_DIR" "$STALE_DIR" 2>&1); then
-    # 正常競態（別人先搬走）的錯誤是 ENOENT；其它錯誤（權限、磁碟）要看得見，
-    # 否則鎖永遠清不掉而且沒有人知道。
-    case "$MV_ERR" in
-      *"No such file or directory"*) log "SKIP: 孤兒鎖已被別的行程處理，本輪跳過" ;;
-      *) log "WARN: 清孤兒鎖失敗（非競態）：${MV_ERR}" ;;
-    esac
+    # 用「鎖還在不在」判競態，不比對 mv 的英文錯誤字串 ——
+    # locale 不是 C 的時候訊息會變成別種語言，字串比對會把正常競態誤報成故障。
+    if [ ! -e "$LOCK_DIR" ]; then
+      log "SKIP: 孤兒鎖已被別的行程處理，本輪跳過"
+    else
+      log "WARN: 清孤兒鎖失敗（非競態）：${MV_ERR}"
+    fi
     exit 0
   fi
 
@@ -101,8 +108,15 @@ else
   # 那我 mv 到的就是人家的活鎖，直接 rm 掉會讓兩邊同時在跑（codex review R3 P1）。
   STALE_PID=$(cat "$STALE_DIR/pid" 2>/dev/null || echo "")
   if [ "$STALE_PID" != "${LOCK_PID}" ] || { [ -n "$STALE_PID" ] && kill -0 "$STALE_PID" 2>/dev/null; }; then
-    mv "$STALE_DIR" "$LOCK_DIR" 2>/dev/null || rm -rf "$STALE_DIR"
-    log "SKIP: 搬到的已不是原本那個孤兒（pid ${STALE_PID:-unknown}），還回去並跳過"
+    # 搬錯了：手上這包可能是別人的活鎖，**絕對不能刪**。
+    # 目標位置已被第三個行程佔走時也不要硬還（會巢狀塞進人家的鎖目錄裡），
+    # 直接留著讓上面的 stale GC 一小時後回收（codex review R4 P1）。
+    if [ -e "$LOCK_DIR" ]; then
+      log "WARN: 想還原孤兒鎖但 ${LOCK_DIR} 已被佔用，保留 ${STALE_DIR} 待回收"
+    elif ! mv "$STALE_DIR" "$LOCK_DIR" 2>/dev/null; then
+      log "WARN: 還原孤兒鎖失敗，保留 ${STALE_DIR} 待回收"
+    fi
+    log "SKIP: 搬到的已不是原本那個孤兒（pid ${STALE_PID:-unknown}），本輪跳過"
     exit 0
   fi
 
