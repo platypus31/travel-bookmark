@@ -117,11 +117,10 @@ else
     # 萬一真的塞成巢狀，殘骸會躺在對方鎖目錄底下，對方結束時的 cleanup 會一起帶走。
     if mv "$STALE_DIR" "$LOCK_DIR" 2>/dev/null &&
        [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "${STALE_PID}" ]; then
-      log "已把孤兒鎖原樣還回去（pid ${STALE_PID:-unknown}）"
+      log "SKIP: 那個鎖不是孤兒（pid ${STALE_PID:-unknown} 還活著），已原樣還回去，本輪跳過"
     else
-      log "WARN: 孤兒鎖還原失敗或被巢狀塞入，殘骸 ${STALE_DIR} 交給 stale GC / 對方 cleanup 回收"
+      log "WARN: 那個鎖不是孤兒（pid ${STALE_PID:-unknown}）但還不回去，殘骸 ${STALE_DIR} 交給 stale GC / 對方 cleanup 回收；本輪跳過"
     fi
-    log "SKIP: 搬到的已不是原本那個孤兒（pid ${STALE_PID:-unknown}），本輪跳過"
     exit 0
   fi
 
