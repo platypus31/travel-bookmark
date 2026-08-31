@@ -1,5 +1,12 @@
 "use client";
 
+/**
+ * ⚠️ 這支元件目前沒有被任何頁面 import（實測 2026-08-31：`grep -rn "BookmarkCard" src/`
+ * 只會命中它自己）。首頁 src/app/page.tsx 走的是 ClientApp.tsx，卡片渲染在
+ * 那裡的 renderBookmark()。改這裡不會改到任何實際畫面 ——
+ * 要動書籤卡的外觀請改 ClientApp.tsx，這支只是留著的備用版本，跟著同步以免日後接回去時是舊的。
+ */
+
 import { useState } from "react";
 import { Bookmark, PLACE_TYPE_LABELS, PLATFORM_LABELS } from "@/lib/types";
 import { platformEmoji, placeTypeEmoji } from "@/lib/utils";
@@ -87,16 +94,29 @@ export default function BookmarkCard({ bookmark, onToggleVisited, onDelete }: Pr
           </span>
         )}
 
+        {/* 清單型貼文拆出來的地點，url 是它自己的 Google Maps 連結，
+            原貼文要走 source_url，否則「查看原始貼文」會連到地圖去。 */}
         <a
-          href={bookmark.url}
+          href={bookmark.source_url || bookmark.url}
           target="_blank"
           rel="noopener noreferrer"
           className="block text-primary text-sm font-medium mt-1"
         >
-          {bookmark.platform === "googlemaps"
+          {bookmark.platform === "googlemaps" && !bookmark.source_url
             ? "🗺️ 在 Google Maps 開啟 →"
             : "查看原始貼文 →"}
         </a>
+
+        {bookmark.source_url && (
+          <a
+            href={bookmark.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block text-green-600 text-sm font-medium"
+          >
+            📍 Google Maps
+          </a>
+        )}
 
         {/* Action Menu */}
         {showActions && (

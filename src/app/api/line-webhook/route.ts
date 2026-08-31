@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { detectPlatform, platformEmoji, placeTypeEmoji } from "@/lib/utils";
 import { PLATFORM_LABELS } from "@/lib/types";
+import { cleanCaption, looksLikeListPost } from "@/lib/caption";
 import {
   resolveGoogleMapsUrl,
   parseGoogleMapsUrl,
@@ -116,21 +117,24 @@ async function fetchOgMeta(url: string): Promise<{ title: string | null; descrip
     const titleTag = html.match(/<title[^>]*>([^<]*)<\/title>/);
 
     // Clean up IG-style titles
-    let rawTitle = ogTitle?.[1] || titleTag?.[1] || null;
+    // 2026-08-31：原本這裡自己 inline 解 &#x…; / &quot;，只解了 title 沒解 description，
+    // 導致存進 DB 的描述整段是 entity（網頁搜尋搜不到中文、LLM 也讀不懂）。
+    // 統一改用 cleanCaption()，title 與 description 走同一套。
+    let rawTitle = cleanCaption(ogTitle?.[1] || titleTag?.[1] || null);
     if (rawTitle) {
-      rawTitle = rawTitle.replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)));
-      rawTitle = rawTitle.replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-
       const igMatch = rawTitle.match(/在 Instagram[：:]\s*["""]?(.+)/) || rawTitle.match(/on Instagram[：:]\s*["""]?(.+)/);
       if (igMatch) {
         rawTitle = igMatch[1].replace(/["""]\s*$/, '');
       }
     }
 
+    // ⚠️ description 這裡刻意保留「未清洗」的原文：
+    // 呼叫端會把 title 與 description 併成一段之後再一次 cleanCaption()，
+    // 這樣「og:title 就是文案第一行」造成的重複才有辦法被偵測掉。
     const rawDesc = ogDesc?.[1] || null;
 
     // Try to extract actual place name from title + description
-    const combined = [rawTitle, rawDesc].filter(Boolean).join(" ");
+    const combined = [rawTitle, cleanCaption(rawDesc)].filter(Boolean).join(" ");
     const placeName = extractPlaceName(combined);
 
     // For display: truncate rawTitle
@@ -185,7 +189,9 @@ async function handleUrl(url: string, extraText: string, replyToken: string) {
     og = await fetchOgMeta(url);
   }
 
-  const ogCombined = [og.title, og.description].filter(Boolean).join(" ");
+  // 給 extractCity / guessPlaceType 用的文字：要用清洗過的版本，
+  // 不然縣市名在 &#x53f0;&#x5357; 裡面，關鍵字比對永遠 miss。
+  const ogCombined = [og.title, cleanCaption(og.description)].filter(Boolean).join(" ");
 
   // 3. Determine title: user text > extracted place name > OG title
   let title: string | null = cleanText || null;
@@ -195,11 +201,18 @@ async function handleUrl(url: string, extraText: string, replyToken: string) {
   // Store full OG caption as description (even if we extracted a place name from it)
   // Google Maps 例外：og.description（googleMapsPlaceText）本身已含「地點名稱：X」，
   // 使用者若另附文字會讓 title !== og.title，前綴 og.title 會使店名重複兩次。
+  //
+  // 2026-08-31：非 Google Maps 的情況一律再過一次 cleanCaption()。
+  // 這一步同時做三件事：解 HTML entity、剝掉「583 likes, 23 comments - … on …:」的 IG 殼、
+  // 去掉「og:title 與文案第一行重複」那一行。清乾淨的文案是多地點抽取的前提 ——
+  // 模型看得懂整篇，才有辦法把「台南必吃 8 家」裡的 8 家一家一家挑出來。
   const description = platform === "googlemaps"
     ? og.description || null
-    : og.title && og.title !== title
-      ? og.title + (og.description ? `\n${og.description}` : '')
-      : og.description || null;
+    : cleanCaption(
+        og.title && og.title !== title
+          ? og.title + (og.description ? `\n${og.description}` : '')
+          : og.description || null
+      );
 
   // Try to extract city/placeType from OG meta if not found in user text
   if (!city) {
@@ -255,6 +268,14 @@ async function handleUrl(url: string, extraText: string, replyToken: string) {
   if (!title && og.title) parts.push(`📝 ${og.title}`);
   if (city) parts.push(`📍 ${city}`);
   if (placeType) parts.push(`${typeEmoji} ${placeType}`);
+
+  // 清單型貼文（「台南必吃 8 家」那種）：實際拆成幾筆是 enrich 排程每 2 分鐘跑一次時
+  // 由 LLM 決定的，webhook 這邊只能看格式先給一句預告，免得他以為只收到一家。
+  const isListPost = looksLikeListPost(description);
+  if (isListPost) {
+    parts.push(`\n📋 看起來是多家店的清單貼文，我會在幾分鐘內自動拆成多筆，到網頁看就會分開列出`);
+  }
+
   if (!title) parts.push(`\n💡 沒偵測到店名，你可以到網頁上編輯`);
   if (!city) parts.push(`\n💡 我沒偵測到地區，你可以補充：「嘉義」就好`);
 

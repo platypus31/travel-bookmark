@@ -5,6 +5,7 @@ import {
   parseGoogleMapsUrl,
   googleMapsPlaceText,
 } from "@/lib/gmaps";
+import { cleanCaption } from "@/lib/caption";
 
 interface PreviewData {
   title: string | null;
@@ -83,15 +84,20 @@ export async function POST(request: NextRequest) {
     // Only parse first 50KB to avoid memory issues
     const truncated = html.slice(0, 50000);
 
+    // 2026-08-31：title / description 都過 cleanCaption()。
+    // 沒清的時候，網頁「新增收藏」的預覽卡會直接顯示 &#x53f0;&#x5357; 這種東西，
+    // 而且使用者按下儲存就把整段 entity 原封不動存進 DB（與 LINE 那邊同一個病）。
     const preview: PreviewData = {
-      title:
+      title: cleanCaption(
         extractMeta(truncated, "og:title") ||
         extractMeta(truncated, "twitter:title") ||
-        extractTitle(truncated),
-      description:
+        extractTitle(truncated)
+      ),
+      description: cleanCaption(
         extractMeta(truncated, "og:description") ||
         extractMeta(truncated, "twitter:description") ||
-        extractMeta(truncated, "description"),
+        extractMeta(truncated, "description")
+      ),
       image:
         extractMeta(truncated, "og:image") ||
         extractMeta(truncated, "twitter:image"),
