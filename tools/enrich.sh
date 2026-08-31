@@ -111,10 +111,15 @@ else
     # 搬錯了：手上這包可能是別人的活鎖，**絕對不能刪**。
     # 目標位置已被第三個行程佔走時也不要硬還（會巢狀塞進人家的鎖目錄裡），
     # 直接留著讓上面的 stale GC 一小時後回收（codex review R4 P1）。
-    if [ -e "$LOCK_DIR" ]; then
-      log "WARN: 想還原孤兒鎖但 ${LOCK_DIR} 已被佔用，保留 ${STALE_DIR} 待回收"
-    elif ! mv "$STALE_DIR" "$LOCK_DIR" 2>/dev/null; then
-      log "WARN: 還原孤兒鎖失敗，保留 ${STALE_DIR} 待回收"
+    # 不要先 `[ -e "$LOCK_DIR" ]` 再 mv —— 那是 check-then-act，兩步之間第三個行程
+    # 建了 LOCK_DIR 的話 mv 一樣巢狀塞進去而且回傳 0，會被當成還原成功、連 WARN 都不印
+    #（codex review R5 P1）。改成先做再驗：搬完讀 LOCK_DIR/pid，是我搬回去的那個才算數。
+    # 萬一真的塞成巢狀，殘骸會躺在對方鎖目錄底下，對方結束時的 cleanup 會一起帶走。
+    if mv "$STALE_DIR" "$LOCK_DIR" 2>/dev/null &&
+       [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "${STALE_PID}" ]; then
+      log "已把孤兒鎖原樣還回去（pid ${STALE_PID:-unknown}）"
+    else
+      log "WARN: 孤兒鎖還原失敗或被巢狀塞入，殘骸 ${STALE_DIR} 交給 stale GC / 對方 cleanup 回收"
     fi
     log "SKIP: 搬到的已不是原本那個孤兒（pid ${STALE_PID:-unknown}），本輪跳過"
     exit 0
