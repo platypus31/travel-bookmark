@@ -53,9 +53,21 @@ cleanup_lock() {
 }
 trap cleanup_lock EXIT
 
+# 回收上輩子留下的 .stale.* 垃圾（mv 完還沒 rm 就被 kill -9 會殘留）。
+# 只清超過 1 小時的，免得砍到別的行程正在處理中的那一個。
+find "$REPO_DIR/logs" -maxdepth 1 -type d -name '.enrich.lock.stale.*' -mmin +60 -exec rm -rf {} + 2>/dev/null || true
+
 if mkdir "$LOCK_DIR" 2>/dev/null; then
   LOCK_HELD=1
   echo $$ > "$LOCK_DIR/pid"
+  # 寫後驗證：極端情況下別的行程可能剛好把這個鎖當孤兒搬走並重建。
+  # 停一下讀回來，不是自己的 pid 就讓給對方（LOCK_HELD 歸零，trap 才不會砍到人家的鎖）。
+  sleep 1
+  if [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" != "$$" ]; then
+    LOCK_HELD=0
+    log "SKIP: 鎖被別的行程搶走，本輪跳過"
+    exit 0
+  fi
 else
   LOCK_PID=$(cat "$LOCK_DIR/pid" 2>/dev/null || echo "")
   if [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" 2>/dev/null; then
@@ -74,10 +86,26 @@ else
   # 直接 rm -rf 再 mkdir 的話，兩個行程同時判定孤兒時，B 的 rm 會把 A 剛建好的鎖砍掉，
   # 結果兩邊都以為自己拿到鎖 —— 正是這段機制要防的重疊（codex review R2 P2）。
   STALE_DIR="${LOCK_DIR}.stale.$$"
-  if ! mv "$LOCK_DIR" "$STALE_DIR" 2>/dev/null; then
-    log "SKIP: 孤兒鎖已被別的行程處理，本輪跳過"
+  if ! MV_ERR=$(mv "$LOCK_DIR" "$STALE_DIR" 2>&1); then
+    # 正常競態（別人先搬走）的錯誤是 ENOENT；其它錯誤（權限、磁碟）要看得見，
+    # 否則鎖永遠清不掉而且沒有人知道。
+    case "$MV_ERR" in
+      *"No such file or directory"*) log "SKIP: 孤兒鎖已被別的行程處理，本輪跳過" ;;
+      *) log "WARN: 清孤兒鎖失敗（非競態）：${MV_ERR}" ;;
+    esac
     exit 0
   fi
+
+  # 搬完、刪掉之前再確認一次：搬到手上的還是原本判定為死掉的那一個嗎？
+  # 有可能在我讀完 pid 到 mv 之間，別的行程已經完成回收並重建了活鎖，
+  # 那我 mv 到的就是人家的活鎖，直接 rm 掉會讓兩邊同時在跑（codex review R3 P1）。
+  STALE_PID=$(cat "$STALE_DIR/pid" 2>/dev/null || echo "")
+  if [ "$STALE_PID" != "${LOCK_PID}" ] || { [ -n "$STALE_PID" ] && kill -0 "$STALE_PID" 2>/dev/null; }; then
+    mv "$STALE_DIR" "$LOCK_DIR" 2>/dev/null || rm -rf "$STALE_DIR"
+    log "SKIP: 搬到的已不是原本那個孤兒（pid ${STALE_PID:-unknown}），還回去並跳過"
+    exit 0
+  fi
+
   log "清掉孤兒鎖（pid ${LOCK_PID:-unknown} 已不存在，鎖齡 ${LOCK_AGE}s）"
   rm -rf "$STALE_DIR"
 
