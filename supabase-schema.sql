@@ -26,7 +26,11 @@ create table if not exists bookmarks (
   id uuid primary key default gen_random_uuid(),
   group_id uuid references groups(id),
   created_by uuid references profiles(id),
+  -- 這筆書籤自己要開的連結。清單型貼文拆出來的地點存該店的 Google Maps 搜尋連結。
   url text not null,
+  -- 2026-08-31：來源貼文網址。一篇貼文多家店時，拆出來的每一筆填同一個值（群組顯示用）；
+  -- 單店收藏維持 null。既有安裝請改跑 supabase/migrations/2026-08-31-add-source-url.sql
+  source_url text,
   -- 2026-08-31：線上 DB 一直有這個 CHECK 但以前沒寫進本檔（schema drift），
   -- 補寫出來並加入 googlemaps。既有安裝請改跑
   -- supabase/migrations/2026-08-31-add-googlemaps-platform.sql
@@ -44,8 +48,15 @@ create table if not exists bookmarks (
   confidence numeric default 0,
   enriched_at timestamptz,
   created_at timestamptz default now(),
+  -- ⚠️ 這個唯一鍵是線上 RPC insert_bookmark_from_bot 的 on conflict 目標，動它會弄壞 LINE Bot。
+  -- 一篇貼文多家店為什麼不用改它，見 supabase/migrations/2026-08-31-add-source-url.sql 第 3 段。
   unique (group_id, url)
 );
+
+-- 群組查詢用（只索引清單型貼文拆出來的列）
+create index if not exists bookmarks_group_source_url_idx
+  on bookmarks (group_id, source_url)
+  where source_url is not null;
 
 -- ============================================================
 -- 2. Row Level Security

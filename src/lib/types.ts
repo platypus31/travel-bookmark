@@ -6,6 +6,13 @@ export interface Bookmark {
   group_id: string;
   created_by: string;
   url: string;
+  /**
+   * 來源貼文網址。IG／小紅書「一篇介紹 8 家店」的清單貼文拆出來時，
+   * 每一筆都填同一個值，網頁靠它群組顯示並連回原貼文。單店收藏為 null。
+   * （欄位由 supabase/migrations/2026-08-31-add-source-url.sql 建立；
+   *   還沒跑 migration 的資料庫讀回來會是 undefined，所以型別容許 null/undefined 兩種缺值。）
+   */
+  source_url?: string | null;
   platform: Platform;
   title: string | null;
   description: string | null;
