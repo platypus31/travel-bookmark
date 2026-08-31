@@ -30,7 +30,9 @@ type DisplayRow =
   | { kind: "single"; bookmark: Bookmark }
   | { kind: "group"; sourceUrl: string; items: Bookmark[] };
 
-function groupBySource(list: Bookmark[]): DisplayRow[] {
+// export 是為了能單獨測這段分組邏輯（它決定畫面怎麼把「同一篇貼文」收在一起）。
+// 元件本身用不到 export，但沒 export 就只能靠肉眼看畫面驗證。
+export function groupBySource(list: Bookmark[]): DisplayRow[] {
   const rows: DisplayRow[] = [];
   // source_url → 已經放進 rows 的那個 group，之後同一篇的都塞進去
   const openGroups = new Map<string, Extract<DisplayRow, { kind: "group" }>>();
