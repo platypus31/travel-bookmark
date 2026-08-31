@@ -46,3 +46,11 @@ next-env.d.ts
 # local ops notes & build (2026-07-29 首案)
 HANDOFF.md
 /.next/
+
+# safe-swap 產生的暫存/備份檔（2026-08-31）
+tools/*.staged
+tools/*.pre-swap-*
+tools/*.rejected-*
+
+# backfill-descriptions.py 的資料備份（本機 ops 用，不進版控）
+/backups/
