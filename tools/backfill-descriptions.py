@@ -79,8 +79,11 @@ def main():
 
     # clean_caption 住在 enrich_places.py，那支在 import 時會讀 stdin 跑主流程，
     # 所以這裡先餵一個空陣列進去，讓它跑完 0 筆再借用函式。
-    os.environ.setdefault('SUPABASE_URL', supabase_url)
-    os.environ.setdefault('SUPABASE_KEY', supabase_key)
+    # 一定要直接賦值不能用 setdefault：SUPABASE_URL / SUPABASE_KEY 是很通用的名字，
+    # 呼叫端環境若剛好已經有（別的專案、別的排程），setdefault 會靜默沿用舊值，
+    # 讓這支「會寫回正式資料」的腳本打到另一個 Supabase 專案而且毫無警告。
+    os.environ['SUPABASE_URL'] = supabase_url
+    os.environ['SUPABASE_KEY'] = supabase_key
     import io
     import importlib.util
     real_stdin, sys.stdin = sys.stdin, io.StringIO('[]')

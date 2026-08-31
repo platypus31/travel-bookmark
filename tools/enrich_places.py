@@ -642,7 +642,14 @@ def insert_place_bookmark(parent, place, source_url):
             body = e.read().decode('utf-8', errors='ignore')[:200]
         except Exception:
             pass
-        print(f'    ! 新增 {place["place_name"]} 失敗 HTTP {e.code}: {body}', file=sys.stderr)
+        # 最容易踩的一種失敗：線上 RLS 沒開放 anon INSERT（實測 2026-08-31 就是這個狀態）。
+        # 訊息裡直接寫出要跑哪一段，不要讓下一個人對著 42501 猜。
+        if '42501' in body or 'row-level security' in body:
+            print('    ! 新增被資料庫的 RLS 擋下（42501）。請到 Supabase SQL Editor 跑 '
+                  'supabase/migrations/2026-08-31-add-source-url.sql 的第 4 段（開放 INSERT）。'
+                  '在那之前多地點會一家都拆不出來，原書籤本身仍會正常更新。', file=sys.stderr)
+        else:
+            print(f'    ! 新增 {place["place_name"]} 失敗 HTTP {e.code}: {body}', file=sys.stderr)
     except Exception as e:
         print(f'    ! 新增 {place["place_name"]} 失敗：{e}', file=sys.stderr)
     return False

@@ -60,7 +60,38 @@ create index if not exists bookmarks_group_source_url_idx
 -- 唯一鍵若真的哪天要改，必須連 RPC 本體一起改，而且要先把 RPC 現況匯出來看。
 
 -- ============================================================
--- 驗證（跑完貼這段，應該看到 source_url 欄位與索引都在）：
+-- 4. 🔴 開放 INSERT —— 沒有這段，「一篇貼文拆多筆」整個不會動
+-- ============================================================
+--
+-- 為什麼需要（2026-08-31 實測，不是推論）：
+--   拿 anon key 對 /rest/v1/bookmarks 送 POST，線上回：
+--     HTTP 401 / 42501 "new row violates row-level security policy for table bookmarks"
+--   不帶任何特殊欄位、只送最小資料也一樣 → 是 RLS 擋的，不是欄位問題。
+--   也就是說 supabase-schema.sql 寫的 `create policy "allow all" ... for all using (true)`
+--   跟線上實際的政策對不起來（跟 bookmarks_platform_check 一樣是 schema drift，
+--   repo 看到的不等於線上跑的）。
+--
+--   影響範圍不只新功能：
+--     · enrich 排程要把拆出來的第 2~N 家寫成新書籤 → 會被擋，一家都拆不出來
+--     · 網頁的「新增收藏」表單（AddBookmark.tsx）走 client 端 insert → 一樣被擋
+--   LINE Bot 不受影響，因為它走 RPC insert_bookmark_from_bot（SECURITY DEFINER 繞過 RLS）。
+--
+-- 安全性（請自己看一眼再決定要不要跑這段）：
+--   這**不會**擴大既有曝險。anon key 本來就寫在前端 bundle 裡（NEXT_PUBLIC_ 開頭），
+--   而且現在就已經能讀全表、能改全表、能刪全表（同日實測 PATCH 204、DELETE 204 都通）。
+--   換句話說拿到那把 key 的人早就能把資料清光；再多給一個 INSERT 沒有讓事情變更糟。
+--   真要收緊的話該做的是換成登入後的 authenticated 政策，那是另一件事，
+--   跟這次的功能無關，別綁在一起做。
+--
+-- 不想跑這段也可以：功能會降級成「只更新原本那一筆、不拆多地點」，
+-- 其餘（描述清洗、群組顯示）照常，enrich.log 會留下 401 的錯誤訊息。
+
+drop policy if exists "allow insert" on bookmarks;
+create policy "allow insert" on bookmarks
+  for insert with check (true);
+
+-- ============================================================
+-- 驗證（跑完貼這段，應該看到 source_url 欄位、索引、insert 政策都在）：
 -- ============================================================
 -- select column_name, data_type, is_nullable
 -- from information_schema.columns
@@ -68,3 +99,6 @@ create index if not exists bookmarks_group_source_url_idx
 --
 -- select indexname from pg_indexes
 -- where tablename = 'bookmarks' and indexname = 'bookmarks_group_source_url_idx';
+--
+-- select policyname, cmd from pg_policies
+-- where tablename = 'bookmarks';

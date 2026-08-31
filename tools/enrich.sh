@@ -39,6 +39,31 @@ fi
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG"; }
 
+# ---- 併發鎖 ----
+# LaunchAgent 每 120s 觸發一次，但單輪最多處理 10 筆、每筆最壞情況要等 Gemini 60s + Ollama 30s，
+# 一輪跑超過兩分鐘是有可能的 → 沒有鎖就會兩輪重疊，同一批書籤被抓兩次、
+# 對 Gemini 與 Supabase 送重複請求。用 mkdir 當原子鎖（macOS 沒有內建 flock）。
+LOCK_DIR="$REPO_DIR/logs/.enrich.lock"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  LOCK_PID=$(cat "$LOCK_DIR/pid" 2>/dev/null || echo "")
+  if [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" 2>/dev/null; then
+    log "SKIP: 上一輪還在跑（pid ${LOCK_PID}），本輪跳過"
+    exit 0
+  fi
+  # 走到這裡代表鎖在、持有者卻不在了。先看鎖的年齡再清 ——
+  # 剛 mkdir 完但還沒寫 pid 的那一瞬間也會讀不到 pid，年齡防呆避免把活鎖誤清掉。
+  LOCK_AGE=$(( $(date +%s) - $(stat -f %m "$LOCK_DIR" 2>/dev/null || date +%s) ))
+  if [ "$LOCK_AGE" -lt 60 ]; then
+    log "SKIP: 鎖剛建立 ${LOCK_AGE}s 還讀不到 pid，本輪跳過不強清"
+    exit 0
+  fi
+  log "清掉孤兒鎖（pid ${LOCK_PID:-unknown} 已不存在，鎖齡 ${LOCK_AGE}s）"
+  rm -rf "$LOCK_DIR"
+  mkdir "$LOCK_DIR" 2>/dev/null || { log "SKIP: 搶鎖失敗，本輪跳過"; exit 0; }
+fi
+echo $$ > "$LOCK_DIR/pid"
+trap 'rm -rf "$LOCK_DIR"' EXIT
+
 if [ ! -f "$PLACES_SCRIPT" ]; then
   log "ERROR: 找不到 $PLACES_SCRIPT"
   exit 2

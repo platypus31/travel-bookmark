@@ -74,6 +74,13 @@ create policy "allow all" on groups     for all using (true);
 create policy "allow all" on profiles   for all using (true);
 create policy "allow all" on bookmarks  for all using (true);
 
+-- 2026-08-31：實測線上用 anon key 送 INSERT 會被擋（42501 violates row-level security policy），
+-- 也就是線上實際的政策跟上面這幾行對不起來（schema drift，同 bookmarks_platform_check）。
+-- 沒有這條的話：enrich 拆不出多地點、網頁「新增收藏」表單也存不進去。
+-- 既有安裝請改跑 supabase/migrations/2026-08-31-add-source-url.sql 的第 4 段。
+drop policy if exists "allow insert" on bookmarks;
+create policy "allow insert" on bookmarks for insert with check (true);
+
 -- ============================================================
 -- 3. 插入預設資料（LINE Bot 會寫入這個 group / user）
 -- ============================================================
