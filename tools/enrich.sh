@@ -44,7 +44,19 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG"; }
 # 一輪跑超過兩分鐘是有可能的 → 沒有鎖就會兩輪重疊，同一批書籤被抓兩次、
 # 對 Gemini 與 Supabase 送重複請求。用 mkdir 當原子鎖（macOS 沒有內建 flock）。
 LOCK_DIR="$REPO_DIR/logs/.enrich.lock"
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+LOCK_HELD=0
+# 只清「確定是自己的」鎖。SKIP 路徑不能無條件 rm，否則會把別人的活鎖砍掉。
+# 用 if 不用 `[ ... ] && rm`：後者在條件不成立時整個函式回非 0，
+# EXIT trap 的最後一個回傳值會蓋掉腳本原本的退出碼，讓正常結束被記成失敗。
+cleanup_lock() {
+  if [ "$LOCK_HELD" = "1" ]; then rm -rf "$LOCK_DIR"; fi
+}
+trap cleanup_lock EXIT
+
+if mkdir "$LOCK_DIR" 2>/dev/null; then
+  LOCK_HELD=1
+  echo $$ > "$LOCK_DIR/pid"
+else
   LOCK_PID=$(cat "$LOCK_DIR/pid" 2>/dev/null || echo "")
   if [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" 2>/dev/null; then
     log "SKIP: 上一輪還在跑（pid ${LOCK_PID}），本輪跳過"
@@ -57,12 +69,34 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
     log "SKIP: 鎖剛建立 ${LOCK_AGE}s 還讀不到 pid，本輪跳過不強清"
     exit 0
   fi
+
+  # 清孤兒鎖用 mv 不用 rm：mv 只有一個行程會成功，第二個拿到 ENOENT 就知道別人先處理了。
+  # 直接 rm -rf 再 mkdir 的話，兩個行程同時判定孤兒時，B 的 rm 會把 A 剛建好的鎖砍掉，
+  # 結果兩邊都以為自己拿到鎖 —— 正是這段機制要防的重疊（codex review R2 P2）。
+  STALE_DIR="${LOCK_DIR}.stale.$$"
+  if ! mv "$LOCK_DIR" "$STALE_DIR" 2>/dev/null; then
+    log "SKIP: 孤兒鎖已被別的行程處理，本輪跳過"
+    exit 0
+  fi
   log "清掉孤兒鎖（pid ${LOCK_PID:-unknown} 已不存在，鎖齡 ${LOCK_AGE}s）"
-  rm -rf "$LOCK_DIR"
-  mkdir "$LOCK_DIR" 2>/dev/null || { log "SKIP: 搶鎖失敗，本輪跳過"; exit 0; }
+  rm -rf "$STALE_DIR"
+
+  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    log "SKIP: 清完孤兒鎖後被別的行程搶先，本輪跳過"
+    exit 0
+  fi
+  LOCK_HELD=1
+  echo $$ > "$LOCK_DIR/pid"
+
+  # mv 仍有極小視窗可能搬走「別人剛建好的活鎖」。寫完 pid 停一下再讀回來，
+  # 不是自己的就讓給對方，並且把 LOCK_HELD 歸零免得 trap 砍掉人家的鎖。
+  sleep 1
+  if [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" != "$$" ]; then
+    LOCK_HELD=0
+    log "SKIP: 鎖被別的行程搶走，本輪跳過"
+    exit 0
+  fi
 fi
-echo $$ > "$LOCK_DIR/pid"
-trap 'rm -rf "$LOCK_DIR"' EXIT
 
 if [ ! -f "$PLACES_SCRIPT" ]; then
   log "ERROR: 找不到 $PLACES_SCRIPT"
