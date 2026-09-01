@@ -54,3 +54,6 @@ tools/*.rejected-*
 
 # backfill-descriptions.py 的資料備份（本機 ops 用，不進版控）
 /backups/
+
+# python 編譯快取
+tools/__pycache__/

@@ -292,7 +292,9 @@ travel-bookmark/
 │       ├── types.ts
 │       └── utils.ts
 ├── tools/
-│   └── enrich.sh                     # Ollama 自動 enrich
+│   ├── enrich.sh                     # Ollama 自動 enrich
+│   ├── backup.sh                     # 每日 Supabase → iCloud JSON dump
+│   └── backup_assemble.py            # 備份分頁組檔（backup.sh 呼叫）
 ├── bootstrap.sh                      # 互動式一鍵安裝
 ├── supabase-schema.sql               # 一鍵建表 SQL
 └── .env.local                        # API keys（gitignore 排除）
@@ -313,8 +315,47 @@ travel-bookmark/
 npm run dev              # 本地開發 (http://localhost:3000)
 bash tools/enrich.sh     # 手動跑一次 AI 整理
 tail -f logs/enrich.log  # 看 AI 整理的 log
+bash tools/backup.sh     # 手動備份一次（平常由 LaunchAgent 每天 09:20 跑）
 vercel --prod            # 手動部署到 Vercel
 ```
+
+### 🗄️ 每日備份（唯一還原路徑）
+
+Supabase 免費方案沒有時間點還原，而網頁前端直接用 anon key 做 delete/update ——
+收藏被刪光是這個系統唯一「不可逆」的後果。所以做備份，而不是加登入。
+
+`tools/backup.sh` 每天把 `bookmarks` / `groups` / `profiles` 三張表 dump 成一份 JSON：
+
+- 位置：`~/Library/Mobile Documents/com~apple~CloudDocs/travel-bookmark-backup/travel-bookmark-YYYY-MM-DD.json`
+- 保留最近 30 份，更舊的自動刪除
+- 原子寫入（先寫暫存 → 驗證是合法 JSON 且 bookmarks 非空 → 同目錄 `mv`），失敗絕不覆蓋當天的好備份
+- credential 從 `.env.local` 讀（跟 `enrich.sh` 同一套），不寫死也不進 log
+
+裝排程（macOS）：把下面存成 `~/Library/LaunchAgents/travel-bookmark.backup.plist` 再
+`launchctl load ~/Library/LaunchAgents/travel-bookmark.backup.plist`。
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>travel-bookmark.backup</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/你的帳號/travel-bookmark/tools/backup.sh</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>20</integer></dict>
+    <key>StandardOutPath</key><string>/Users/你的帳號/travel-bookmark/logs/backup-stdout.log</string>
+    <key>StandardErrorPath</key><string>/Users/你的帳號/travel-bookmark/logs/backup-stderr.log</string>
+</dict>
+</plist>
+```
+
+還原：備份檔的 `tables.bookmarks` 就是整包資料列，用 Supabase REST
+（`POST /rest/v1/bookmarks`，帶 `Prefer: resolution=merge-duplicates`）送回去即可。
+故意不寫成自動還原腳本 —— 覆寫線上資料要有人看著。
 
 ### 資料庫結構
 ```
