@@ -6,6 +6,7 @@ import {
   googleMapsPlaceText,
 } from "@/lib/gmaps";
 import { cleanCaption } from "@/lib/caption";
+import { fetchGuarded, isFetchableUrl } from "@/lib/url-guard";
 
 interface PreviewData {
   title: string | null;
@@ -64,21 +65,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(mapsPreview);
     }
 
+    // 🔴 SSRF 防線：這支 API 會由「伺服器」去抓使用者給的網址，本機 server 監聽 *:3100
+    // （不是只有 127.0.0.1），沒有白名單的話同網段裝置能透過它打內網。
+    // 只放行真的會收藏的平台，其餘一律拒絕；轉址後的每一跳由 fetchGuarded 重驗。
+    if (!isFetchableUrl(url)) {
+      return NextResponse.json(
+        { title: null, description: null, image: null, error: "Unsupported link" },
+        { status: 400 }
+      );
+    }
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
 
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; TravelBookmarkBot/1.0)",
-        Accept: "text/html,application/xhtml+xml",
-        "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
-      },
-      redirect: "follow",
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
+    let response: Response;
+    try {
+      response = await fetchGuarded(url, {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (compatible; TravelBookmarkBot/1.0)",
+          Accept: "text/html,application/xhtml+xml",
+          "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+        },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
 
     const html = await response.text();
     // Only parse first 50KB to avoid memory issues
@@ -105,7 +118,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(preview);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to fetch preview";
-    return NextResponse.json({ title: null, description: null, image: null, error: message });
+    // 錯誤原文（DNS 結果、連線被拒、內部路徑…）只留在伺服器 log，
+    // 回給前端一律是同一句 —— 否則錯誤訊息本身就是內網探測工具。
+    console.error("[preview] fetch failed:", error);
+    return NextResponse.json(
+      { title: null, description: null, image: null, error: "Failed to fetch preview" },
+      { status: 502 }
+    );
   }
 }
