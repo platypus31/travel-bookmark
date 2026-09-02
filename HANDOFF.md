@@ -74,7 +74,7 @@ LINE 群組傳連結 → Vercel webhook（即時存入 Supabase + 抓 og:image�
       為了已經拿得到的東西付費不划算。
       **代價（誠實記錄）**：拿不到門牌地址與營業資訊，縣市/行政區交給後段 LLM 從店名推斷；
       若哪天真的需要「地址、電話、營業時間、評分」，那才是接 Places API 的時機。
-      🔴 **需要使用者跑一次 SQL 才會生效** → `supabase/migrations/2026-08-31-add-googlemaps-platform.sql`
+      ✅ **使用者已於 2026-09-02 在 SQL Editor 執行完畢**（兩支 migration 全部生效：source_url 欄位＋索引＋googlemaps 白名單＋allow insert 政策，pg_policies 實查 8 列確認）。原文：🔴 需要使用者跑一次 SQL 才會生效 → `supabase/migrations/2026-08-31-add-googlemaps-platform.sql`
       （線上 DB 的 `bookmarks_platform_check` 沒放行 `googlemaps`，實測插入回 400/23514）
 - [x] 防幻覺（低信心不更新 title、prompt 明確禁止猜測）
 - [x] 書籤分類：餐廳/咖啡廳/景點/酒吧/住宿/烘焙/甜點/夜市
