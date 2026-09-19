@@ -364,7 +364,7 @@ def _build_extract_prompt(title, description, page_text):
     - 嘉義：文化路夜市 / 嘉義車站 → 東區
   - 若真的完全無法判斷具體行政區，才用縣市名 fallback。
 
-- **place_type**：類型，嚴格從以下挑一個：restaurant, cafe, bar, hotel, attraction, bakery, dessert, nightmarket, other
+- **place_type**：類型，嚴格從以下挑一個：restaurant, cafe, bar, hotel, attraction, bakery, dessert, nightmarket, shop, other
   - 🎯 判斷原則：
     - 主打「咖啡廳 / café / coffee / 咖啡館」→ cafe（即使也賣輕食）
     - 主打「酒吧 / bar / pub / 調酒」→ bar
@@ -373,6 +373,7 @@ def _build_extract_prompt(title, description, page_text):
     - 自然景點 / 溫泉 / 步道 / 峽谷 / 展覽 → attraction
     - 夜市 / 市集 → nightmarket
     - 早午餐 / 牛排 / 火鍋 / 川菜 / 日料 / 韓食 / 拉麵 / 漢堡 → restaurant
+    - shop：文具店／選物店／雜貨／書店等以逛為主的商店（餐飲類不算）
   - ⚠️ **誘餌句式注意**：若 title 說「以為是 X，結果是 Y」，以 **Y** 為準（例：「以為網美咖啡廳結果是中式料理」→ place_type = restaurant）
 
 - **confidence**：**這一家**提取結果的信心（0.0-1.0），每家各自給。
@@ -508,7 +509,7 @@ def extract_place_info(title, description, page_text):
 
 VALID_PLACE_TYPES = (
     'restaurant', 'cafe', 'bar', 'hotel', 'attraction',
-    'bakery', 'dessert', 'nightmarket', 'other',
+    'bakery', 'dessert', 'nightmarket', 'shop', 'other',
 )
 
 # 明顯不是店名的候選：hashtag / 標註帳號 / 純縣市名。模型偶爾還是會吐這些，兜底擋掉。

@@ -371,7 +371,7 @@ bookmarks
 ├── city          縣市（不帶市/縣後綴）
 ├── district      行政區（fallback 到縣市）
 ├── place_type    restaurant | cafe | bar | hotel | attraction |
-│                 bakery | dessert | nightmarket | other
+│                 bakery | dessert | nightmarket | shop | other
 ├── tags          TEXT[]
 ├── visited       是否去過
 ├── confidence    AI 辨識信心（0.0~1.0）

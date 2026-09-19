@@ -32,6 +32,7 @@ export function placeTypeEmoji(type: string | null): string {
     case "bakery": return "🥐";
     case "dessert": return "🍰";
     case "nightmarket": return "🏮";
+    case "shop": return "🛍️";
     default: return "📍";
   }
 }
