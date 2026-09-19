@@ -71,7 +71,7 @@ export const PLACE_TYPE_LABELS: Record<PlaceType, string> = {
   dessert: "甜點",
   nightmarket: "市集",
   shop: "商店",
-  drinks: "手搖",
+  drinks: "手搖飲",
   other: "其他",
 };
 
