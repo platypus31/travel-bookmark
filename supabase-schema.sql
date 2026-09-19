@@ -42,13 +42,14 @@ create table if not exists bookmarks (
   image_url text,
   city text,
   district text,
-  -- 2026-09-19：新增 'shop'（商店）值。既有安裝請改跑
+  -- 2026-09-19：新增 'shop'（商店）、'drinks'（手搖）值。既有安裝請改跑
   -- supabase/migrations/2026-09-19-add-shop-place-type.sql
-  -- （該檔同時補了 bookmarks_place_type_check，防未來又發生 platform 那種
+  -- 與 supabase/migrations/2026-09-19-add-drinks-place-type.sql
+  -- （這兩支都補了 bookmarks_place_type_check，防未來又發生 platform 那種
   --   schema drift——CHECK 只加在 Dashboard、schema 檔忘了寫）
   place_type text check (place_type is null or place_type in (
     'restaurant', 'cafe', 'attraction', 'bar', 'hotel',
-    'bakery', 'dessert', 'nightmarket', 'shop', 'other'
+    'bakery', 'dessert', 'nightmarket', 'shop', 'drinks', 'other'
   )),
   tags text[],
   visited boolean default false,

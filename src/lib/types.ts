@@ -1,5 +1,5 @@
 export type Platform = "instagram" | "xiaohongshu" | "youtube" | "tiktok" | "googlemaps" | "other";
-export type PlaceType = "restaurant" | "cafe" | "attraction" | "bar" | "hotel" | "bakery" | "dessert" | "nightmarket" | "shop" | "other";
+export type PlaceType = "restaurant" | "cafe" | "attraction" | "bar" | "hotel" | "bakery" | "dessert" | "nightmarket" | "shop" | "drinks" | "other";
 
 export interface Bookmark {
   id: string;
@@ -69,8 +69,9 @@ export const PLACE_TYPE_LABELS: Record<PlaceType, string> = {
   hotel: "住宿",
   bakery: "烘焙",
   dessert: "甜點",
-  nightmarket: "夜市",
+  nightmarket: "市集",
   shop: "商店",
+  drinks: "手搖",
   other: "其他",
 };
 
