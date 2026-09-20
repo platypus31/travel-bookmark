@@ -103,6 +103,7 @@ LINE 群組傳連結 → Vercel webhook（即時存入 Supabase + 抓 og:image�
 5. **schema drift（2026-08-31 發現）** — 線上 DB 有 `bookmarks_platform_check` 這個 CHECK constraint，
    但 `supabase-schema.sql` 裡從來沒有。已補寫進 schema 檔。
    **教訓：以後加新的 platform / place_type 值，光改 TypeScript union 不夠，要一起改 DB constraint。**
+   **2026-09-20 起 AI 可直連 DB**：`.env.local` 有 `SUPABASE_DB_URL`（Session pooler，不進版控），`python3 -c 'import psycopg'` 可用，migration／DDL 查證自己跑，不必再請 owner 到 SQL Editor 按 Run。
 
 ## 待優化（優先順序）
 
