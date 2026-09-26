@@ -105,9 +105,7 @@ LINE 群組傳連結 → Vercel webhook（即時存入 Supabase + 抓 og:image�
     挑一個，不開放自由新增名字，資料庫層級無法驗證「你選的名字真的是你」。
   - migration：`supabase/migrations/2026-09-26-collab-history-lists.sql`（已於線上執行，
     冪等可重跑）；設計全文＋ROI評估：`docs/collab-design.md`。
-  - ⚠️ **部署卡住**：AI 執行到這裡時本機 `vercel` CLI 未登入（`auth.json` 是空的 `{}`，
-    `vercel whoami`/`vercel pull` 卡在等 OAuth device flow），程式碼與資料庫都已上線，
-    只差 `vercel login` 後跑「部署指令」那三行。
+  - ✅ 2026-09-26 16:39 已部署上線（`dpl_B7RJeio3iBFJwPeTSiKpxErL8ewy`）；本機 `vercel` CLI 已由 owner 以 device flow 登入。
 
 ## 已知問題
 
