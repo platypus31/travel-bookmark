@@ -25,6 +25,13 @@ export interface Bookmark {
   confidence: number | null;
   enriched_at: string | null;
   created_at: string;
+  /**
+   * 最後編輯者。欄位由 supabase/migrations/2026-09-26-collab-history-lists.sql 建立；
+   * 舊資料一律是 null（沒有人用網頁編輯過），前端遇到 null 就不顯示「最後編輯」那行。
+   */
+  updated_by?: string | null;
+  /** 人工編輯時間；只有網頁端人工編輯會寫，DB trigger 靠它分辨人 vs 背景腳本。 */
+  user_edited_at?: string | null;
 }
 
 export interface Profile {
@@ -40,6 +47,62 @@ export interface Group {
   invite_code: string;
   created_at: string;
 }
+
+/** 誰、何時、改了哪個欄位、舊值→新值。由 bookmarks 的 UPDATE trigger 自動寫入。 */
+export interface BookmarkEdit {
+  id: string;
+  bookmark_id: string;
+  editor_id: string | null;
+  field: string;
+  old_value: string | null;
+  new_value: string | null;
+  created_at: string;
+}
+
+/** 個人清單／分類：大 pool 共用，透過 ListItem 多對多掛載收藏，不複製資料。 */
+export interface BookmarkList {
+  id: string;
+  group_id: string;
+  created_by: string | null;
+  name: string;
+  created_at: string;
+}
+
+export interface ListItem {
+  list_id: string;
+  bookmark_id: string;
+  added_by: string | null;
+  added_at: string;
+}
+
+export type ListEditAction = "add" | "remove" | "rename";
+
+export interface ListEdit {
+  id: string;
+  list_id: string;
+  editor_id: string | null;
+  action: ListEditAction;
+  bookmark_id: string | null;
+  detail: string | null;
+  created_at: string;
+}
+
+/** list_group_members RPC 的回傳形狀（比 Profile 少 group_id，刻意不外洩）。 */
+export interface GroupMember {
+  id: string;
+  display_name: string;
+  created_at: string;
+}
+
+export const EDITABLE_FIELD_LABELS: Record<string, string> = {
+  title: "名稱",
+  description: "描述",
+  city: "縣市",
+  district: "區域",
+  place_type: "類型",
+  visited: "已造訪",
+  tags: "標籤",
+};
 
 export const CITIES: Record<string, string[]> = {
   台北: ["中正區", "大同區", "中山區", "松山區", "大安區", "萬華區", "信義區", "士林區", "北投區", "內湖區", "南港區", "文山區"],

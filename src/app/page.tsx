@@ -44,5 +44,5 @@ export default async function Home() {
     getGroupName(),
   ]);
 
-  return <ClientApp initialBookmarks={bookmarks} groupName={groupName} />;
+  return <ClientApp initialBookmarks={bookmarks} groupName={groupName} groupId={DEFAULT_GROUP_ID} />;
 }

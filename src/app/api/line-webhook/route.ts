@@ -48,6 +48,56 @@ const CITIES = [
   "澎湖", "金門", "馬祖",
 ];
 
+// LINE event.source 的形狀（只列用得到的欄位）
+interface LineSource {
+  type: "user" | "group" | "room";
+  userId?: string;
+  groupId?: string;
+  roomId?: string;
+}
+
+/**
+ * 依 LINE event.source 抓真人 displayName，對應/建立成 profiles 一筆，回傳其 id。
+ * 2026-09-26 新增：之前這裡永遠回傳 DEFAULT_USER_ID（線上唯一一筆 profile，
+ * 顯示名稱「鴨嘴獸」），導致 477 筆收藏全部顯示同一個上傳者。
+ *
+ * 任何一步失敗（LINE Profile API 掛掉、RPC 出錯）都 fallback 回 DEFAULT_USER_ID，
+ * 不能讓「誰上傳」這個附加功能擋住原本「收到連結就存」的核心流程。
+ */
+async function resolveUploaderProfileId(source: LineSource | undefined): Promise<string> {
+  const userId = source?.userId;
+  if (!userId) return DEFAULT_USER_ID;
+
+  try {
+    let profileUrl: string;
+    if (source!.type === "group" && source!.groupId) {
+      profileUrl = `https://api.line.me/v2/bot/group/${source!.groupId}/member/${userId}`;
+    } else if (source!.type === "room" && source!.roomId) {
+      profileUrl = `https://api.line.me/v2/bot/room/${source!.roomId}/member/${userId}`;
+    } else {
+      profileUrl = `https://api.line.me/v2/bot/profile/${userId}`;
+    }
+
+    const res = await fetch(profileUrl, {
+      headers: { Authorization: `Bearer ${CHANNEL_ACCESS_TOKEN}` },
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) return DEFAULT_USER_ID;
+    const profile = await res.json();
+    const displayName: string | null = profile?.displayName || null;
+
+    const { data, error } = await supabase.rpc("get_or_create_profile_by_line", {
+      p_group_id: DEFAULT_GROUP_ID,
+      p_line_user_id: userId,
+      p_display_name: displayName,
+    });
+    if (error || !data?.id) return DEFAULT_USER_ID;
+    return data.id as string;
+  } catch {
+    return DEFAULT_USER_ID;
+  }
+}
+
 function extractUrl(text: string): string | null {
   const urlRegex = /(https?:\/\/[^\s]+)/;
   const match = text.match(urlRegex);
@@ -160,9 +210,13 @@ async function fetchOgMeta(url: string): Promise<{ title: string | null; descrip
   }
 }
 
-async function handleUrl(url: string, extraText: string, replyToken: string) {
+async function handleUrl(url: string, extraText: string, replyToken: string, source?: LineSource) {
   const platform = detectPlatform(url);
   const cleanText = extraText.replace(/(https?:\/\/[^\s]+)/g, "").trim();
+  // 誰傳的連結 → 誰就是這筆收藏的上傳者（取代舊的寫死 DEFAULT_USER_ID）
+  // 先發出不 await：跟下面抓 OG／展開 Google Maps 並行，免得兩段網路延遲疊加拖到 LINE 逾時。
+  // resolveUploaderProfileId 內部全包 try/catch、永不 reject，提前發出不會有 unhandled rejection。
+  const uploaderProfileIdPromise = resolveUploaderProfileId(source);
 
   // 1. Try to extract city from user's message text
   let city = extractCity(cleanText);
@@ -225,7 +279,7 @@ async function handleUrl(url: string, extraText: string, replyToken: string) {
   // Check if this URL already exists (RPC returns existing on conflict)
   const { data, error } = await supabase.rpc("insert_bookmark_from_bot", {
     p_group_id: DEFAULT_GROUP_ID,
-    p_created_by: DEFAULT_USER_ID,
+    p_created_by: await uploaderProfileIdPromise,
     p_url: storedUrl,
     p_platform: platform,
     p_title: title || og.title || null,
@@ -371,14 +425,14 @@ export async function POST(req: NextRequest) {
   for (const event of events) {
     if (event.type !== "message" || !event.replyToken) continue;
 
-    const { message, replyToken } = event;
+    const { message, replyToken, source } = event;
 
     if (message.type === "text") {
       const text = message.text.trim();
       const url = extractUrl(text);
 
       if (url) {
-        await handleUrl(url, text, replyToken);
+        await handleUrl(url, text, replyToken, source);
       } else if (/^(help|說明|幫助)$/i.test(text)) {
         await replyMessage(replyToken, [
           {
