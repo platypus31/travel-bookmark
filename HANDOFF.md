@@ -1,6 +1,6 @@
 # Travel Bookmark — 交班清單
 
-上次更新：2026-08-31（新增 Google Maps 分享連結收錄）
+上次更新：2026-09-26（家人協作三功能：誰上傳、編輯歷史、個人清單）
 
 ## 專案狀態：完整運行中
 
@@ -88,6 +88,26 @@ LINE 群組傳連結 → Vercel webhook（即時存入 Supabase + 抓 og:image�
 - [x] bootstrap.sh 一鍵安裝（含 .env.local）
 - [x] README 完整說明書
 - [x] Supabase Storage bucket（bookmark-images，已建但暫未使用）
+- [x] **家人協作三功能（2026-09-26，`feat/collab-history-lists` 已併入 main）**：
+  - **誰上傳**：`profiles` 加 `line_user_id`（LINE webhook 依 LINE userId 對應真人，
+    取代原本寫死的機器人帳號），`bookmarks.created_by` 開始存真人 profile id。
+  - **誰編輯＋編輯歷史**：`bookmarks` 加 `updated_by` + `user_edited_at`（只有網站
+    人工編輯會寫 `user_edited_at`，`tools/enrich.sh` 等背景腳本不碰），
+    trigger `log_bookmark_edit()` 自動把逐欄位新舊值寫進新表 `bookmark_edits`。
+    **語意重點**：判斷「這次 UPDATE 是不是人做的」看的是 `user_edited_at` 有沒有
+    在這次 UPDATE 被改動，不是看 `updated_by` 是否非 null（因為 Postgres UPDATE
+    沒帶的欄位會沿用舊值，`updated_by` 一旦被設過就永久非 null）。
+  - **個人清單**：新表 `lists`/`list_items`/`list_edits`，同群組任何人可建立/
+    改名/加入/移出/刪除（不是個人專屬地盤，沒有 owner 限制），走
+    `list_add_item`/`list_remove_item`/`list_rename`/`list_delete` 四支
+    `SECURITY DEFINER` RPC（異動+寫歷史同一顆交易）。
+  - 身分模型是**君子協定**：網頁「選名字」只能從 LINE 群組既有成員（`list_group_members`）
+    挑一個，不開放自由新增名字，資料庫層級無法驗證「你選的名字真的是你」。
+  - migration：`supabase/migrations/2026-09-26-collab-history-lists.sql`（已於線上執行，
+    冪等可重跑）；設計全文＋ROI評估：`docs/collab-design.md`。
+  - ⚠️ **部署卡住**：AI 執行到這裡時本機 `vercel` CLI 未登入（`auth.json` 是空的 `{}`，
+    `vercel whoami`/`vercel pull` 卡在等 OAuth device flow），程式碼與資料庫都已上線，
+    只差 `vercel login` 後跑「部署指令」那三行。
 
 ## 已知問題
 
@@ -140,6 +160,10 @@ LINE 群組傳連結 → Vercel webhook（即時存入 Supabase + 抓 og:image�
 | 平台偵測 + emoji | `src/lib/utils.ts` |
 | Google Maps 網址解析 | `src/lib/gmaps.ts` |
 | DB schema | README.md「資料庫結構」段落 |
+| 選名字（身分） | `src/components/IdentityPicker.tsx` + `src/lib/identity.ts` |
+| 個人清單 UI + 邏輯 | `src/components/MyLists.tsx` + `src/lib/useLists.ts` |
+| 清單分享連結（`?list=`） | `src/lib/useListParam.ts` |
+| 協作三功能設計筆記 | `docs/collab-design.md` |
 
 ## 部署指令
 
